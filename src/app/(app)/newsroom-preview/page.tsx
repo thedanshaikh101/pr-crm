@@ -1,2 +1,7 @@
-import { ModulePlanned } from "@/components/ModulePlanned";
-export default function Page() { return <ModulePlanned name="Public Newsroom" step={3} includes={["Subdomain per account, custom domain, RSS, media kit, pageview tracking"]} />; }
+import { redirect } from "next/navigation";
+import { requireViewer } from "@/lib/auth";
+
+export default async function Page() {
+  const v = await requireViewer();
+  redirect(`/n/${v.account.slug}`);
+}
