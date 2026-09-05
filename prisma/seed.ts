@@ -3,6 +3,10 @@
 import { PrismaClient } from "@prisma/client";
 import { faker } from "@faker-js/faker";
 import bcrypt from "bcryptjs";
+import type { SeedModule } from "./seed/types";
+
+// Module seeders (one file per build step). Each receives the demo account handles.
+const MODULES: SeedModule[] = [];
 
 const db = new PrismaClient();
 faker.seed(42);
@@ -121,6 +125,9 @@ async function main() {
     { accountId: a, kind: "RELEASE", title: releases[2].headline, startsAt: releases[2].scheduledFor!, entityId: releases[2].id, clientId: clients[2].id },
   ] });
   for (let i = 0; i < 40; i++) await db.auditLog.create({ data: { accountId: a, userId: faker.helpers.arrayElement([owner.id, editor.id]), action: faker.helpers.arrayElement(["contact.update", "list.add_members", "release.publish", "coverage.create"]), createdAt: faker.date.recent({ days: 10 }) } });
+
+  const ctx = { accountId: a, ownerId: owner.id, editorId: editor.id, clientIds: clients.map((c) => c.id), contactIds: contacts, orgIds: orgs.map((o) => o.id), listIds: lists.map((l) => l.id), releaseIds: releases.map((r) => r.id), subjectIds };
+  for (const m of MODULES) await m(db, ctx);
 
   console.log("Seeded demo account. Sign in: demo@pressdesk.local / demo-password-1");
 }
