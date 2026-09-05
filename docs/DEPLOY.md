@@ -1,5 +1,25 @@
 # Production deploy
 
+## Option C: Render, no server to manage (recommended if you just want it hosted)
+
+`render.yaml` in the repo root describes everything: the web app, the background worker, a Postgres database and a Redis instance.
+
+1. Sign up at render.com and connect your GitHub account.
+2. Click **New +** then **Blueprint**, pick the `pr-crm` repository and the branch that has the app, and click **Apply**.
+3. Render asks for one value, `SUPERADMIN_EMAILS`: enter your email address. Everything else is generated.
+4. Wait for the first deploy (about ten minutes). Open the web service; its URL looks like `https://pressdesk-xxxx.onrender.com`.
+5. Copy that URL into the worker service's `APP_URL` environment variable (Render dashboard, pressdesk-worker, Environment) so tracked links and unsubscribe links in emails point at the right host. Save; the worker redeploys.
+6. Sign in with the demo user (`demo@pressdesk.local` / `demo-password-1`) or register your own workspace. Once you have your own workspace, set `SEED_DEMO` to `0` on the web service.
+
+Cost at the time of writing: two Starter services and a Basic Postgres, roughly 20 USD a month; Redis is on the free plan.
+
+Going live with real email: set `EMAIL_PROVIDER=resend` and `RESEND_API_KEY` on both services, add `RESEND_WEBHOOK_SECRET` on the web service, and point a Resend webhook at `https://<your url>/api/webhooks/email`. Then add and verify a sending domain inside the app (Settings, Sending Domains).
+
+Files: uploads are stored on the web service's disk. For large teams or large imports move to S3-compatible storage (Cloudflare R2 works): set `STORAGE_DRIVER=s3` plus the `S3_*` variables on both services.
+
+Your own domain: add it under the web service's Settings, Custom Domains, then set `APP_URL` on both services to that URL. For newsroom subdomains add a wildcard domain such as `*.newsroom.yourdomain.com` and set `NEWSROOM_DOMAIN=newsroom.yourdomain.com`.
+
+
 ## Option A: single VPS (Hetzner/DigitalOcean, 4 GB)
 
 1. Install Docker + Compose. Clone the repo. `cp .env.example .env` and set real values (`SESSION_SECRET`, `APP_URL`, `EMAIL_PROVIDER=resend`, keys, S3).

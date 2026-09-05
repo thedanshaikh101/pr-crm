@@ -29,7 +29,7 @@ services:
       DATABASE_URL: postgresql://pressdesk:pressdesk@db:5432/pressdesk?schema=public
       REDIS_URL: redis://redis:6379
     ports: ["3000:3000"]
-    command: sh -c "npx prisma migrate deploy && node server.js"
+    volumes: ["storage:/app/.storage"]
   worker:
     build: .
     depends_on: [db, redis]
@@ -37,7 +37,9 @@ services:
     environment:
       DATABASE_URL: postgresql://pressdesk:pressdesk@db:5432/pressdesk?schema=public
       REDIS_URL: redis://redis:6379
-    command: npx tsx src/worker/index.ts
+    command: sh scripts/worker.sh
+    volumes: ["storage:/app/.storage"]
 volumes:
   pgdata: {}
   minio: {}
+  storage: {}

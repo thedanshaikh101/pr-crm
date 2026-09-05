@@ -31,6 +31,10 @@ Optional integrations are all off until their env vars are set: Resend (`EMAIL_P
 
 Or everything in containers: `docker compose up --build`.
 
+## Host it
+
+The quickest hosted setup is Render: `render.yaml` creates the app, worker, Postgres and Redis from this repo in one Blueprint. Step by step in `docs/DEPLOY.md`, Option C. The same Docker image (`Dockerfile`, started by `scripts/start.sh` for the web and `scripts/worker.sh` for the worker) also runs on Railway, Fly.io or any VPS with Docker Compose.
+
 ## Tenancy rules (read before writing any query)
 
 1. Every page and server action starts with `const v = await requireViewer()`. `v.account.id` is the only tenancy key.

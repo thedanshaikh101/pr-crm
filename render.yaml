@@ -1,0 +1,69 @@
+# Render Blueprint: one web service, one worker, Postgres and Redis.
+# In Render: New + > Blueprint > pick this repo and branch > Apply.
+services:
+  - type: web
+    name: pressdesk
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/healthz
+    autoDeploy: true
+    disk:
+      name: pressdesk-files
+      mountPath: /app/.storage
+      sizeGB: 5
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pressdesk-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: pressdesk-redis
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SUPERADMIN_EMAILS
+        sync: false            # your email; makes your sign-up the super-admin
+      - key: SEED_DEMO
+        value: "1"             # loads the demo workspace on first boot; set to 0 afterwards
+      - key: EMAIL_PROVIDER
+        value: console         # switch to resend and add RESEND_API_KEY to send real email
+      - key: STORAGE_DRIVER
+        value: local
+      - key: NEWSROOM_DOMAIN
+        value: newsroom.localhost   # newsrooms work at /n/<slug>; set a wildcard domain later
+  - type: worker
+    name: pressdesk-worker
+    runtime: docker
+    plan: starter
+    dockerCommand: sh scripts/worker.sh
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pressdesk-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: pressdesk-redis
+          property: connectionString
+      - key: SESSION_SECRET
+        fromService:
+          type: web
+          name: pressdesk
+          envVarKey: SESSION_SECRET
+      - key: APP_URL
+        sync: false            # paste the web service URL (https://pressdesk-xxxx.onrender.com) after the first deploy
+      - key: EMAIL_PROVIDER
+        value: console
+      - key: STORAGE_DRIVER
+        value: local
+  - type: keyvalue
+    name: pressdesk-redis
+    plan: free
+    ipAllowList: []
+databases:
+  - name: pressdesk-db
+    plan: basic-256mb
