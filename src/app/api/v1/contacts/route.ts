@@ -1,31 +1,47 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { db } from "@/lib/db";
-import { accountFromApiKey } from "@/lib/api/auth";
 import { assertContactCapacity } from "@/lib/auth";
+import { audit } from "@/lib/audit";
+import { dateParam, paginate, pageResponse, readJson, withApiKey } from "@/lib/api/handler";
+import { ContactCreateBody } from "@/lib/api/schemas";
+import { contactOut } from "@/lib/api/serialize";
+import { ensureOrg, setTags } from "@/lib/api/contactsShared";
 
-// GET /api/v1/contacts?q=&page=&per=   POST /api/v1/contacts   (Bearer <api key>)
-export async function GET(req: Request) {
-  const account = await accountFromApiKey(req);
-  if (!account) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const u = new URL(req.url);
-  const q = u.searchParams.get("q") ?? "";
-  const page = Math.max(1, Number(u.searchParams.get("page") ?? 1));
-  const per = Math.min(250, Number(u.searchParams.get("per") ?? 100));
-  const where = { accountId: account.id, deletedAt: null, ...(q ? { searchText: { contains: q, mode: "insensitive" as const } } : {}) };
-  const [total, data] = await Promise.all([db.contact.count({ where }), db.contact.findMany({ where, skip: (page - 1) * per, take: per, include: { organization: { select: { name: true } } } })]);
-  return NextResponse.json({ total, page, per, data: data.map((c: any) => ({ id: c.id, firstName: c.firstName, lastName: c.lastName, email: c.email, jobTitle: c.jobTitle, outlet: c.organization?.name ?? null, updatedAt: c.updatedAt })) });
-}
+export const CONTACT_INCLUDE = { organization: { select: { name: true } }, tags: { include: { tag: { select: { name: true } } } } } as const;
 
-const Body = z.object({ firstName: z.string().min(1), lastName: z.string().default(""), email: z.string().email().optional(), jobTitle: z.string().optional(), outlet: z.string().optional() });
+// GET /api/v1/contacts?q=&list=&tag=&updatedSince=&page=&per=
+export const GET = withApiKey(async ({ url, account }) => {
+  const { page, per, skip } = paginate(url);
+  const q = url.searchParams.get("q")?.trim() ?? "";
+  const list = url.searchParams.get("list");
+  const tag = url.searchParams.get("tag");
+  const updatedSince = dateParam(url, "updatedSince");
+  const and: any[] = [{ accountId: account.id, deletedAt: null, mergedIntoId: null }];
+  if (q) and.push({ OR: [{ firstName: { contains: q, mode: "insensitive" } }, { lastName: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }, { jobTitle: { contains: q, mode: "insensitive" } }, { organization: { name: { contains: q, mode: "insensitive" } } }, { searchText: { contains: q, mode: "insensitive" } }] });
+  if (list) and.push({ listMembers: { some: { listId: list, list: { accountId: account.id } } } });
+  if (tag) and.push({ tags: { some: { tag: { accountId: account.id, OR: [{ id: tag }, { name: { equals: tag, mode: "insensitive" } }] } } } });
+  if (updatedSince) and.push({ updatedAt: { gte: updatedSince } });
+  const where = { AND: and };
+  const [total, data] = await Promise.all([
+    db.contact.count({ where }),
+    db.contact.findMany({ where, skip, take: per, orderBy: { updatedAt: "desc" }, include: CONTACT_INCLUDE }),
+  ]);
+  return pageResponse(total, page, per, data.map(contactOut));
+});
 
-export async function POST(req: Request) {
-  const account = await accountFromApiKey(req);
-  if (!account) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const p = Body.safeParse(await req.json().catch(() => ({})));
-  if (!p.success) return NextResponse.json({ error: p.error.flatten() }, { status: 400 });
-  try { await assertContactCapacity(account.id, account.plan); } catch (e: any) { return NextResponse.json({ error: e.message }, { status: 402 }); }
-  const org = p.data.outlet ? await db.organization.upsert({ where: { accountId_name: { accountId: account.id, name: p.data.outlet } }, create: { accountId: account.id, name: p.data.outlet }, update: {} }) : null;
-  const c = await db.contact.create({ data: { accountId: account.id, organizationId: org?.id, firstName: p.data.firstName, lastName: p.data.lastName, email: p.data.email, jobTitle: p.data.jobTitle, searchText: `${p.data.firstName} ${p.data.lastName} ${p.data.email ?? ""} ${p.data.outlet ?? ""}` } });
-  return NextResponse.json({ id: c.id }, { status: 201 });
-}
+// POST /api/v1/contacts
+export const POST = withApiKey(async ({ req, account }) => {
+  const body = ContactCreateBody.parse(await readJson(req));
+  await assertContactCapacity(account.id, account.plan);
+  const organizationId = await ensureOrg(account.id, body.outlet ?? null);
+  const c = await db.contact.create({
+    data: {
+      accountId: account.id, organizationId, firstName: body.firstName, lastName: body.lastName, email: body.email ?? null, jobTitle: body.jobTitle ?? null,
+      mobile: body.mobile ?? null, landline: body.landline ?? null, searchText: [body.firstName, body.lastName, body.email, body.jobTitle, body.outlet].filter(Boolean).join(" "),
+    },
+  });
+  if (body.tags?.length) await setTags(account.id, c.id, body.tags);
+  await audit(account.id, null, "contact.create", "contact", c.id, { via: "api" });
+  const full = await db.contact.findFirst({ where: { id: c.id, accountId: account.id }, include: CONTACT_INCLUDE });
+  return NextResponse.json(contactOut(full), { status: 201 });
+});

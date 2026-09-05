@@ -6,7 +6,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { assertContactCapacity, requireRole, requireViewer } from "@/lib/auth";
-import { autoMap, errorsToCsv, findDuplicate, googleSheetCsvUrl, normalizeRow, parseText, parseUpload, type TargetField } from "@/lib/contacts/import";
+import { autoMap, errorsToCsv, googleSheetCsvUrl, parseText, parseUpload, type TargetField } from "@/lib/contacts/import";
+import { LARGE_IMPORT_ROWS, MAX_IMPORT_ROWS, PREVIEW_ROWS, runImport, type ImportOptions } from "@/lib/contacts/importRun";
+import { restorePatch, type Snapshot } from "@/lib/contacts/rollback";
+import { canVerify, verifyEmail } from "@/lib/contacts/verify";
+import { ingestContactFeed } from "@/lib/contacts/rssIngest";
+import { enqueue } from "@/lib/queue";
+import { newStorageKey, putObject } from "@/lib/storage";
 
 // ------------------------------------------------------------ helpers
 
@@ -65,6 +71,7 @@ const ContactInput = z.object({
   visibility: z.enum(["SHARED", "PRIVATE"]).optional(),
   ownerId: z.string().optional(),
   isExJournalist: z.coerce.boolean().optional(),
+  rssUrl: z.string().url().optional().or(z.literal("")),
 });
 
 export async function createContact(form: FormData) {
@@ -96,6 +103,7 @@ export async function createContact(form: FormData) {
       visibility: data.visibility ?? "SHARED",
       ownerId: data.ownerId || v.user.id,
       isExJournalist: !!data.isExJournalist,
+      rssUrl: data.rssUrl || null,
       searchText: searchTextFor(data, data.outlet),
       subjects: { create: subjectIds.map((subjectId) => ({ subjectId })) },
     },
@@ -120,6 +128,7 @@ export async function updateContact(id: string, form: FormData) {
   const patch: any = { ...data, organizationId };
   delete patch.outlet; delete patch.subjects; delete patch.classifications; delete patch.audienceLocation;
   if (data.email === "") patch.email = null;
+  if (data.rssUrl === "") patch.rssUrl = null;
   if (data.classifications !== undefined) patch.classifications = data.classifications.split(";").map((s) => s.trim()).filter(Boolean);
   if (data.audienceLocation !== undefined) patch.audienceLocation = data.audienceLocation.split(";").map((s) => s.trim()).filter(Boolean);
   if (significant) { patch.significantUpdate = significant; patch.significantUpdateAt = new Date(); }
@@ -296,9 +305,17 @@ export async function stageImport(form: FormData) {
     ({ headers, rows } = parseUpload(file.name, Buffer.from(await file.arrayBuffer())));
   }
   if (!rows.length) throw new Error("No rows found. Check the first row contains column headers.");
-  if (rows.length > 50_000) throw new Error("Imports are capped at 50,000 rows per file. Split the file.");
+  if (rows.length > MAX_IMPORT_ROWS) throw new Error("Imports are capped at 50,000 rows per file. Split the file.");
+  const staged = rows.length > LARGE_IMPORT_ROWS;
+  let storageKey: string | null = null;
+  if (staged) {
+    storageKey = await putObject(newStorageKey(v.account.id, "imports", `${fileName}.json`), Buffer.from(JSON.stringify(rows)), "application/json");
+  }
   const imp = await db.import.create({
-    data: { accountId: v.account.id, userId: v.user.id, fileName, source, status: "MAPPING", headers, rowCount: rows.length, mapping: autoMap(headers) as any, rawRows: rows as any },
+    data: {
+      accountId: v.account.id, userId: v.user.id, fileName, source, status: "MAPPING", headers, rowCount: rows.length, mapping: autoMap(headers) as any,
+      rawRows: (staged ? rows.slice(0, PREVIEW_ROWS) : rows) as any, storageKey, options: staged ? { staged: true } : undefined,
+    },
   });
   redirect(`/contacts/imports/${imp.id}`);
 }
@@ -313,92 +330,98 @@ export async function commitImport(importId: string, form: FormData) {
   const onDuplicate = (form.get("onDuplicate") as string) === "update" ? "update" : "skip";
   const listChoice = String(form.get("listId") ?? "");
   const newListName = String(form.get("newListName") ?? "").trim();
+  const staged = !!(imp.options as any)?.staged && !!imp.storageKey;
+  const options: ImportOptions = { onDuplicate, listChoice, newListName, staged };
 
-  await db.import.update({ where: { id: importId }, data: { status: "RUNNING", mapping: mapping as any, options: { onDuplicate, listChoice, newListName } } });
+  await db.import.update({ where: { id: importId }, data: { status: "RUNNING", mapping: mapping as any, options: options as any } });
+
+  if (staged) {
+    const jobId = await enqueue("imports", "run-import", { importId, mapping, options, userId: v.user.id, accountId: v.account.id });
+    if (!jobId) {
+      await db.import.update({ where: { id: importId }, data: { status: "FAILED", finishedAt: new Date(), rawRows: { errorsCsv: errorsToCsv([{ row: 0, error: "Could not queue the import. Is the worker running?" }]) } } });
+      await audit(v.account.id, v.user.id, "import.enqueue_failed", "import", importId);
+    } else {
+      await audit(v.account.id, v.user.id, "import.queued", "import", importId, { rows: imp.rowCount, jobId });
+    }
+    redirect(`/contacts/imports`);
+  }
 
   const rows = (imp.rawRows as Record<string, string>[]) ?? [];
-  const normalized = rows.map((r) => normalizeRow(r, mapping));
-  const newCount = normalized.filter((n) => !n.error).length;
-  await assertContactCapacity(v.account.id, v.account.plan, newCount);
-
-  const existing = await db.contact.findMany({
-    where: { accountId: v.account.id, deletedAt: null },
-    select: { id: true, email: true, firstName: true, lastName: true, organization: { select: { name: true } } },
-  });
-  const pool = existing.map((e: any) => ({ id: e.id, email: e.email, firstName: e.firstName, lastName: e.lastName, outlet: e.organization?.name ?? null }));
-
-  let listId: string | null = null;
-  if (listChoice === "new" && newListName) {
-    listId = (await db.list.create({ data: { accountId: v.account.id, name: newListName, ownerId: v.user.id, editedById: v.user.id } })).id;
-  } else if (listChoice && listChoice !== "new" && listChoice !== "none") {
-    const l = await db.list.findFirst({ where: { id: listChoice, accountId: v.account.id } });
-    listId = l?.id ?? null;
-  }
-
-  let created = 0, updated = 0, skipped = 0;
-  const errors: { row: number; error: string }[] = [];
-  const touched: string[] = [];
-  for (let i = 0; i < normalized.length; i++) {
-    const n = normalized[i];
-    if (n.error) { errors.push({ row: i + 2, error: n.error }); continue; }
-    try {
-      const dup = findDuplicate(n, pool);
-      const organizationId = await ensureOrganization(v.account.id, n.outlet);
-      if (organizationId && n.domainAuthority != null) await db.organization.update({ where: { id: organizationId }, data: { domainAuthority: n.domainAuthority } });
-      const subjectIds = await ensureSubjects(n.subjects);
-      const base = {
-        organizationId, firstName: n.firstName, lastName: n.lastName, email: n.email, jobTitle: n.jobTitle, landline: n.landline, mobile: n.mobile,
-        xBio: n.xBio, xHandle: n.xHandle, xFollowers: n.xFollowers, classifications: n.classifications, audienceLocation: n.audienceLocation,
-        physicalLocation: n.physicalLocation, language: n.language, socials: n.socials, searchText: searchTextFor(n, n.outlet),
-      };
-      let id: string;
-      if (dup) {
-        if (onDuplicate === "skip") { skipped++; touched.push(dup.id); }
-        else {
-          const patch: any = Object.fromEntries(Object.entries(base).filter(([, val]) => val != null && !(Array.isArray(val) && !val.length)));
-          await db.contact.update({ where: { id: dup.id }, data: { ...patch, subjects: subjectIds.length ? { deleteMany: {}, create: subjectIds.map((subjectId) => ({ subjectId })) } : undefined } });
-          updated++;
-        }
-        id = dup.id;
-      } else {
-        const c = await db.contact.create({ data: { accountId: v.account.id, importId, ownerId: v.user.id, ...base, subjects: { create: subjectIds.map((subjectId) => ({ subjectId })) } } });
-        pool.push({ id: c.id, email: c.email, firstName: c.firstName, lastName: c.lastName, outlet: n.outlet });
-        created++;
-        id = c.id;
-      }
-      touched.push(id);
-      if (n.tags.length) {
-        for (const t of n.tags) {
-          const tag = await db.tag.upsert({ where: { accountId_name: { accountId: v.account.id, name: t } }, create: { accountId: v.account.id, name: t }, update: {} });
-          await db.contactTag.createMany({ data: [{ contactId: id, tagId: tag.id }], skipDuplicates: true });
-        }
-      }
-      if (n.notes) await db.note.create({ data: { accountId: v.account.id, contactId: id, authorId: v.user.id, body: n.notes } });
-    } catch (e: any) {
-      errors.push({ row: i + 2, error: e?.message ?? "Unknown error" });
-    }
-  }
-  if (listId && touched.length) {
-    await db.listMember.createMany({ data: Array.from(new Set(touched)).map((contactId) => ({ listId: listId!, contactId })), skipDuplicates: true });
-  }
-  await db.import.update({
-    where: { id: importId },
-    data: { status: "DONE", createdCount: created, updatedCount: updated, skippedCount: skipped, errorCount: errors.length, finishedAt: new Date(), rawRows: errors.length ? { errorsCsv: errorsToCsv(errors) } : undefined },
-  });
-  await audit(v.account.id, v.user.id, "import.commit", "import", importId, { created, updated, skipped, errors: errors.length });
+  const r = await runImport({ db, accountId: v.account.id, userId: v.user.id, importId, rows, mapping, options });
+  await audit(v.account.id, v.user.id, "import.commit", "import", importId, { created: r.created, updated: r.updated, skipped: r.skipped, errors: r.errors.length });
   redirect(`/contacts/imports`);
 }
 
-/** Rollback removes contacts created by this import. Updated contacts are left as-is (logged in TODO). */
+/** Rollback soft-deletes created contacts, restores updated ones from their snapshots, and removes list memberships the import added. */
 export async function rollbackImport(importId: string) {
   const v = await requireViewer();
   requireRole(v, "ADMIN");
   const imp = await db.import.findFirst({ where: { id: importId, accountId: v.account.id } });
   if (!imp || imp.status !== "DONE") throw new Error("Only completed imports can be rolled back");
-  await db.contact.updateMany({ where: { importId, accountId: v.account.id }, data: { deletedAt: new Date() } });
+  const accountId = v.account.id;
+  const snapshots = (Array.isArray(imp.snapshots) ? imp.snapshots : []) as Snapshot[];
+  const opts = (imp.options ?? {}) as ImportOptions;
+
+  await db.contact.updateMany({ where: { importId, accountId }, data: { deletedAt: new Date() } });
+
+  let reverted = 0;
+  for (const s of snapshots) {
+    if (!s?.id) continue;
+    const patch = restorePatch(s);
+    const r = await db.contact.updateMany({ where: { id: s.id, accountId }, data: patch });
+    if (!r.count) continue;
+    reverted++;
+    if (Array.isArray(s.subjectIds)) {
+      await db.contactSubject.deleteMany({ where: { contactId: s.id } });
+      if (s.subjectIds.length) await db.contactSubject.createMany({ data: s.subjectIds.map((subjectId) => ({ contactId: s.id, subjectId })), skipDuplicates: true });
+    }
+  }
+
+  let membersRemoved = 0;
+  if (opts.listId) {
+    const list = await db.list.findFirst({ where: { id: opts.listId, accountId }, select: { id: true } });
+    if (list) {
+      const from = opts.startedAt ? new Date(opts.startedAt) : imp.createdAt;
+      const to = imp.finishedAt ?? new Date();
+      const r = await db.listMember.deleteMany({ where: { listId: list.id, addedAt: { gte: from, lte: to } } });
+      membersRemoved = r.count;
+      if (opts.listCreated) await db.list.updateMany({ where: { id: list.id, accountId }, data: { deletedAt: new Date() } });
+    }
+  }
+
   await db.import.update({ where: { id: importId }, data: { status: "ROLLED_BACK", rolledBackAt: new Date() } });
-  await audit(v.account.id, v.user.id, "import.rollback", "import", importId);
+  await audit(accountId, v.user.id, "import.rollback", "import", importId, { removed: imp.createdCount, reverted, membersRemoved });
   revalidatePath("/contacts/imports");
+  revalidatePath("/contacts");
+}
+
+// ------------------------------------------------------------ verification and content
+
+/** Syntax + MX check for one contact, inline. Never downgrades bounced, complained or unsubscribed addresses. */
+export async function verifyContactNow(contactId: string) {
+  const v = await requireViewer();
+  requireRole(v, "EDITOR");
+  const c = await db.contact.findFirst({ where: { id: contactId, accountId: v.account.id, deletedAt: null }, select: { id: true, email: true, emailStatus: true } });
+  if (!c) throw new Error("Contact not found");
+  if (!c.email) return { status: c.emailStatus, note: "No email address to check." };
+  if (!canVerify(c.emailStatus)) return { status: c.emailStatus, note: "This address has a delivery signal that verification does not override." };
+  const r = await verifyEmail(c.email, { smtp: false });
+  await db.contact.updateMany({ where: { id: c.id, accountId: v.account.id }, data: { emailStatus: r.verdict, emailVerifiedAt: new Date() } });
+  await audit(v.account.id, v.user.id, "contact.verify", "contact", c.id, { verdict: r.verdict, mxOk: r.mxOk });
+  revalidatePath(`/contacts/${c.id}`);
+  return { status: r.verdict, note: r.mxOk ? "Mail servers found for the domain." : r.syntaxOk ? "No mail servers found for the domain." : "The address is not well formed." };
+}
+
+/** Fetch the contact's RSS feed now and refresh Recent Content. */
+export async function refreshContent(contactId: string) {
+  const v = await requireViewer();
+  requireRole(v, "EDITOR");
+  const c = await db.contact.findFirst({ where: { id: contactId, accountId: v.account.id, deletedAt: null }, select: { id: true, rssUrl: true } });
+  if (!c) throw new Error("Contact not found");
+  const r = await ingestContactFeed(db, c);
+  await audit(v.account.id, v.user.id, r.ok ? "contact.rss_refresh" : "contact.rss_refresh_failed", "contact", c.id, { added: r.added, seen: r.seen, error: r.error });
+  revalidatePath(`/contacts/${c.id}`);
+  return r;
 }
 
 // ------------------------------------------------------------ organizations

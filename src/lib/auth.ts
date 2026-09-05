@@ -168,16 +168,5 @@ export async function assertEmailCapacity(accountId: string, plan: string, addin
   if ((c?.emailsSent ?? 0) + adding > max) throw new PlanLimitError("emailsPerMonth", max);
 }
 
-// ------------------------------------------------------------ rate limit (in-memory; swap to Redis in worker/redis.ts)
-const buckets = new Map<string, { n: number; reset: number }>();
-export function rateLimit(key: string, max: number, windowMs: number) {
-  const now = Date.now();
-  const b = buckets.get(key);
-  if (!b || b.reset < now) {
-    buckets.set(key, { n: 1, reset: now + windowMs });
-    return true;
-  }
-  if (b.n >= max) return false;
-  b.n++;
-  return true;
-}
+// ------------------------------------------------------------ rate limit (Redis fixed window, in-memory fallback; see src/lib/ratelimit.ts)
+export { rateLimit } from "./ratelimit";

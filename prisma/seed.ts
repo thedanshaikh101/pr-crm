@@ -4,9 +4,15 @@ import { PrismaClient } from "@prisma/client";
 import { faker } from "@faker-js/faker";
 import bcrypt from "bcryptjs";
 import type { SeedModule } from "./seed/types";
+import { seedCoverage } from "./seed/coverage";
+import { seedReleases } from "./seed/releases";
+import { seedNewsroom } from "./seed/newsroom";
+import { seedResponseDesk } from "./seed/responseDesk";
+import { seedSettings } from "./seed/settings";
+import { seedAdmin } from "./seed/admin";
 
 // Module seeders (one file per build step). Each receives the demo account handles.
-const MODULES: SeedModule[] = [];
+const MODULES: SeedModule[] = [seedCoverage, seedReleases, seedResponseDesk, seedNewsroom, seedSettings, seedAdmin];
 
 const db = new PrismaClient();
 faker.seed(42);

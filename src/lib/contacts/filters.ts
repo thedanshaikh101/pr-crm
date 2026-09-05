@@ -135,7 +135,10 @@ export const CLASSIFICATIONS = [
 export const FREQUENCIES = ["DAILY", "WEEKLY", "MONTHLY", "QUARTERLY", "ANNUAL", "CONTINUOUS"];
 export const IMPORTANCE = ["NOT_RANKED", "LOW", "MEDIUM", "HIGH", "VIP"];
 
-export const DEFAULT_COLUMNS = [
+/** A table column in a saved ColumnLayout. `width` is px, set by dragging the header edge. */
+export type Col = { key: string; label: string; visible: boolean; width?: number };
+
+export const DEFAULT_COLUMNS: Col[] = [
   { key: "name", label: "Name", visible: true },
   { key: "outlet", label: "Outlet", visible: true },
   { key: "jobTitle", label: "Job title", visible: true },

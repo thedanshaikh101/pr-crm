@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireViewer } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { addNote, addToList, deleteContacts, mergeContacts, updateContact } from "@/server/contacts";
+import { addNote, addToList, deleteContacts, mergeContacts, refreshContent, updateContact, verifyContactNow } from "@/server/contacts";
 import { ContactForm } from "@/components/contacts/ContactForm";
 
 export default async function ContactPage({ params, searchParams }: { params: { id: string }; searchParams: { edit?: string; tab?: string } }) {
@@ -68,7 +68,8 @@ export default async function ContactPage({ params, searchParams }: { params: { 
             <div className="min-w-0 flex-1">
               <h1 className="text-xl font-semibold">{name} <Link href={`/contacts/${c.id}?edit=1`} className="ml-1 text-sm text-neutral-400 hover:text-accent" aria-label="Edit name">✎</Link></h1>
               <p className="text-sm text-neutral-600">{c.jobTitle}{c.organization && <> · <Link href={`/organizations/${c.organization.id}`} className="hover:underline">{c.organization.name}</Link></>}</p>
-              {c.email && <p className="mt-1 text-sm">{c.email} {c.emailStatus === "VALID" && <span className="pill bg-green-50 text-good">verified</span>}{(c.emailStatus === "BOUNCED" || c.emailStatus === "INVALID") && <span className="pill bg-red-50 text-bad">{c.emailStatus.toLowerCase()}</span>}</p>}
+              {c.email && <p className="mt-1 flex flex-wrap items-center gap-1 text-sm">{c.email} {c.emailStatus === "VALID" && <span className="pill bg-green-50 text-good">verified</span>}{c.emailStatus === "RISKY" && <span className="pill bg-amber-50 text-warn">risky</span>}{(c.emailStatus === "BOUNCED" || c.emailStatus === "INVALID") && <span className="pill bg-red-50 text-bad">{c.emailStatus.toLowerCase()}</span>}
+                {!["BOUNCED", "COMPLAINED", "UNSUBSCRIBED"].includes(c.emailStatus) && <form action={async () => { "use server"; await verifyContactNow(c.id); }}><button className="btn px-2 py-0.5 text-xs" title="Syntax and mail-server check">{c.emailVerifiedAt ? `Re-verify (checked ${c.emailVerifiedAt.toLocaleDateString()})` : "Verify email"}</button></form>}</p>}
               {c.significantUpdate && <p className="mt-1 text-xs text-warn" id="significant">Significant update: {c.significantUpdate}</p>}
             </div>
           </header>
@@ -83,10 +84,10 @@ export default async function ContactPage({ params, searchParams }: { params: { 
             </div>
           </Card>
 
-          <Card title="Activity" right={<Link href={`/contacts/${c.id}?tab=timeline`} className="btn">View timeline</Link>}>
+          <Card title="Activity" right={<span className="flex gap-1">{c.rssUrl && <form action={async () => { "use server"; await refreshContent(c.id); }}><button className="btn" title={c.rssUrl}>Refresh feed</button></form>}<Link href={`/contacts/${c.id}?tab=timeline`} className="btn">View timeline</Link></span>}>
             <div className="mb-2 flex gap-1 text-xs">{[["content", "Recent Content"], ["emails", "Contacts activity"], ["desk", "Response Desk"], ["coverage", "Coverage"], ["timeline", "Timeline"]].map(([k, l]) => <Link key={k} href={`/contacts/${c.id}?tab=${k}`} className={`rounded px-2 py-1 ${tab === k ? "bg-accentSoft text-accent" : "hover:bg-neutral-100"}`}>{l}</Link>)}</div>
             <ul className="divide-y divide-line text-sm">
-              {tab === "content" && (c.contentItems.length ? c.contentItems.map((x: any) => <li key={x.id} className="py-1.5"><a href={x.url} className="hover:underline">{x.title}</a> <span className="text-xs text-neutral-500">{x.publishedAt?.toLocaleDateString()}</span></li>) : <li className="py-2 text-neutral-500">No articles logged. Add an RSS feed on the organization, or paste one via In-Article Search.</li>)}
+              {tab === "content" && (c.contentItems.length ? c.contentItems.map((x: any) => <li key={x.id} className="py-1.5"><a href={x.url} className="hover:underline">{x.title}</a> <span className="text-xs text-neutral-500">{x.publishedAt?.toLocaleDateString()}</span></li>) : <li className="py-2 text-neutral-500">{c.rssUrl ? "No articles yet from this feed. Use Refresh feed, or wait for the 6-hourly ingest." : <>No articles logged. Add an RSS feed URL to this contact (Edit) and it is checked every 6 hours, or paste one via In-Article Search.</>}</li>)}
               {tab === "emails" && (c.recipients.length ? c.recipients.map((r: any) => <li key={r.id} className="py-1.5"><Link href={`/releases/${r.distribution.release.id}`} className="hover:underline">{r.distribution.release.headline}</Link> <span className="text-xs text-neutral-500">{r.deliveredAt ? "delivered" : r.bouncedAt ? "bounced" : "sent"}{r.firstOpenAt ? ` · opened ${r.openCount}×` : ""}{r.clickCount ? ` · ${r.clickCount} clicks` : ""}{r.repliedAt ? " · replied" : ""}</span></li>) : <li className="py-2 text-neutral-500">Nothing sent to this contact yet.</li>)}
               {tab === "desk" && (c.conversations.length ? c.conversations.map((x: any) => <li key={x.id} className="py-1.5">{x.question.slice(0, 100)} <span className="text-xs text-neutral-500">{x.status}</span></li>) : <li className="py-2 text-neutral-500">No enquiries from this contact.</li>)}
               {tab === "coverage" && (c.coverage.length ? c.coverage.map((x: any) => <li key={x.id} className="py-1.5"><Link href={`/coverage/${x.id}`} className="hover:underline">{x.headline}</Link> <span className="text-xs text-neutral-500">{x.outletName}</span></li>) : <li className="py-2 text-neutral-500">No coverage linked yet.</li>)}

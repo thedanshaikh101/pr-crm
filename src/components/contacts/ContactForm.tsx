@@ -20,6 +20,7 @@ export function ContactForm({ action, c, teammates, submitLabel }: {
       <F name="physicalLocation" label="Physical location" value={c?.physicalLocation} />
       <F name="audienceLocation" label="Audience location (separate with ;)" value={c?.audienceLocation?.join("; ")} />
       <F name="language" label="Language" value={c?.language} />
+      <F name="rssUrl" label="RSS feed URL (for Recent Content)" type="url" value={c?.rssUrl} placeholder="https://example.com/author/feed" />
       <F name="subjects" label="Subjects (Parent > Child; separate with ;)" value={c?.subjects?.map((s: any) => s.subject.path).join("; ")} />
       <div><label className="label" htmlFor="classifications">Classifications (separate with ;)</label><input className="input" id="classifications" name="classifications" list="cls" defaultValue={c?.classifications?.join("; ")} /><datalist id="cls">{CLASSIFICATIONS.map((x) => <option key={x} value={x} />)}</datalist></div>
       <div><label className="label" htmlFor="importance">Importance</label><select className="input" id="importance" name="importance" defaultValue={c?.importance ?? "NOT_RANKED"}>{IMPORTANCE.map((x) => <option key={x} value={x}>{x.replace("_", " ")}</option>)}</select></div>

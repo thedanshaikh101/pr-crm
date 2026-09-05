@@ -3,8 +3,15 @@
 import { Worker, type Job } from "bullmq";
 import { queue, redis } from "@/lib/queue";
 import type { JobModule } from "./jobs/types";
+import { sendsJobs } from "./jobs/sends";
+import inboxJobs from "./jobs/inbox";
+import webhookJobs from "./jobs/webhooks";
+import housekeepingJobs from "./jobs/housekeeping";
+import { importsModule } from "./jobs/imports";
+import { verifyModule } from "./jobs/verify";
+import { ingestRssModule } from "./jobs/ingest-rss";
 
-const MODULES: JobModule[] = [];
+const MODULES: JobModule[] = [sendsJobs, inboxJobs, webhookJobs, housekeepingJobs, importsModule, verifyModule, ingestRssModule];
 
 async function main() {
   const connection = redis();

@@ -16,7 +16,7 @@ async function sendSystemEmail(to: string, subject: string, html: string) {
 }
 
 export async function register(_: unknown, form: FormData) {
-  if (!rateLimit(`register:${ip()}`, 5, 6e5)) return { error: "Too many attempts. Try again in 10 minutes." };
+  if (!(await rateLimit(`register:${ip()}`, 5, 6e5))) return { error: "Too many attempts. Try again in 10 minutes." };
   const p = z.object({ name: z.string().min(1), email: z.string().email(), password: z.string().min(10, "Use at least 10 characters"), workspace: z.string().min(2) }).safeParse(Object.fromEntries(form));
   if (!p.success) return { error: p.error.issues[0].message };
   try {
@@ -31,7 +31,7 @@ export async function register(_: unknown, form: FormData) {
 
 export async function login(_: unknown, form: FormData) {
   const email = String(form.get("email") ?? "").toLowerCase();
-  if (!rateLimit(`login:${ip()}:${email}`, 8, 9e5)) return { error: "Too many attempts. Try again in 15 minutes." };
+  if (!(await rateLimit(`login:${ip()}:${email}`, 8, 9e5))) return { error: "Too many attempts. Try again in 15 minutes." };
   const user = await db.user.findUnique({ where: { email } });
   const ok = user?.passwordHash && (await checkPassword(String(form.get("password") ?? ""), user.passwordHash));
   if (!ok) return { error: "Email or password is wrong." };
@@ -46,7 +46,7 @@ export async function logout() {
 
 export async function sendMagicLink(_: unknown, form: FormData) {
   const email = String(form.get("email") ?? "").toLowerCase();
-  if (!rateLimit(`magic:${email}`, 3, 9e5)) return { error: "Check your inbox; a link was already sent." };
+  if (!(await rateLimit(`magic:${email}`, 3, 9e5))) return { error: "Check your inbox; a link was already sent." };
   const user = await db.user.findUnique({ where: { email } });
   if (user) {
     const t = await issueToken(user.id, "MAGIC_LINK", 15);
@@ -57,7 +57,7 @@ export async function sendMagicLink(_: unknown, form: FormData) {
 
 export async function requestReset(_: unknown, form: FormData) {
   const email = String(form.get("email") ?? "").toLowerCase();
-  if (!rateLimit(`reset:${email}`, 3, 9e5)) return { error: "Check your inbox; a link was already sent." };
+  if (!(await rateLimit(`reset:${email}`, 3, 9e5))) return { error: "Check your inbox; a link was already sent." };
   const user = await db.user.findUnique({ where: { email } });
   if (user) {
     const t = await issueToken(user.id, "RESET_PASSWORD", 30);
