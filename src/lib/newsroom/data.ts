@@ -100,13 +100,17 @@ export async function getLiveRelease(accountId: string, slug: string) {
     db.release.findFirst({ where: { ...liveWhere(accountId), id: { not: r.id }, publishedAt: { lt: at } }, orderBy: { publishedAt: "desc" }, select: { slug: true, headline: true } }),
     db.release.findFirst({ where: { ...liveWhere(accountId), id: { not: r.id }, publishedAt: { gt: at } }, orderBy: { publishedAt: "asc" }, select: { slug: true, headline: true } }),
     r.boilerplateId ? db.boilerplate.findFirst({ where: { id: r.boilerplateId, accountId, kind: "BOILERPLATE" } }) : null,
-    mediaContactFor(accountId, r.clientId),
+    mediaContactFor(accountId, r.clientId, r.mediaContactId ?? null),
   ]);
   return { release: r, prev, next, boilerplateHtml: boilerplate?.body ?? null, mediaContactHtml: mediaContact };
 }
 
 /** MEDIA_CONTACT boilerplate for the client, else the account default one, else the newsroom setting. */
-export async function mediaContactFor(accountId: string, clientId: string | null) {
+export async function mediaContactFor(accountId: string, clientId: string | null, mediaContactId: string | null = null) {
+  if (mediaContactId) {
+    const own = await db.boilerplate.findFirst({ where: { accountId, id: mediaContactId, kind: "MEDIA_CONTACT" } });
+    if (own) return own.body as string;
+  }
   const rows = await db.boilerplate.findMany({ where: { accountId, kind: "MEDIA_CONTACT", OR: [{ clientId: clientId ?? "__none__" }, { isDefault: true }, { clientId: null }] } });
   const pick = rows.find((b: any) => clientId && b.clientId === clientId) ?? rows.find((b: any) => b.isDefault) ?? null;
   if (pick) return pick.body as string;

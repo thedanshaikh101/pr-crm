@@ -56,7 +56,7 @@ export async function ReleaseListPage({ kind, searchParams }: { kind: Kind; sear
       <ListToolbar
         screen={kind === "NEWSLETTER" ? "newsletters" : "releases"} q={f.q ?? ""} filterCount={activeReleaseFilterCount(f)} view={f.view}
         total={total} from={from} to={to} page={f.page} pages={pages} per={f.per}
-        hrefFor={(patch) => `${base}${toReleaseQuery({ ...f, ...patch })}`} resetHref={base} currentQuery={toReleaseQuery(f)}
+        basePath={base} query={toReleaseQuery(f)} placeholder="Search headline or subheadline" resetHref={base} currentQuery={toReleaseQuery(f)}
         drawer={<ReleaseFilterDrawer f={f} base={base} clients={clients} tags={tags} />}
       />
 

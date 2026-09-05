@@ -24,14 +24,16 @@ export async function uniqueSlug(accountId: string, base: string, excludeId?: st
   for (let n = 2; ; n++) if (!set.has(`${b}-${n}`)) return `${b}-${n}`;
 }
 
-/** Release.mediaContactId does not exist yet; press releases keep it in the blocks JSON as { mediaContactId }. */
-export function readMediaContactId(blocks: unknown): string | null {
+/** Media contact id: the Release.mediaContactId column, with a fallback to rows saved before the column existed ({ mediaContactId } in blocks). */
+export function readMediaContactId(r: { mediaContactId?: string | null; blocks?: unknown } | null | undefined): string | null {
+  if (!r) return null;
+  if (r.mediaContactId) return r.mediaContactId;
+  const blocks = r.blocks;
   if (blocks && typeof blocks === "object" && !Array.isArray(blocks)) return ((blocks as any).mediaContactId as string) ?? null;
   return null;
 }
-export function blocksColumnFor(kind: Kind, blocks: Block[], mediaContactId: string | null) {
-  if (kind === "NEWSLETTER") return blocks;
-  return mediaContactId ? { mediaContactId } : null;
+export function blocksColumnFor(kind: Kind, blocks: Block[], _mediaContactId: string | null) {
+  return kind === "NEWSLETTER" ? blocks : null;
 }
 
 export const RELEASE_INCLUDE = {
@@ -42,7 +44,7 @@ export const RELEASE_INCLUDE = {
 
 /** Everything renderReleaseHtml needs for a stored release, with boilerplate rows resolved. */
 export async function buildRenderInput(accountId: string, r: any): Promise<RenderInput> {
-  const mediaContactId = readMediaContactId(r.blocks);
+  const mediaContactId = readMediaContactId(r);
   const ids = [r.boilerplateId, r.footerId, mediaContactId].filter(Boolean) as string[];
   const rows = ids.length ? await db.boilerplate.findMany({ where: { accountId, id: { in: ids } } }) : [];
   const byId = (id: string | null) => rows.find((x: any) => x.id === id)?.body ?? null;
@@ -80,7 +82,7 @@ export async function attachmentLinks(rows: { asset: { name: string; storageKey:
 export function snapshotOf(r: any) {
   return {
     headline: r.headline, subheadline: r.subheadline, datelineCity: r.datelineCity, datelineDate: r.datelineDate, body: r.body, blocks: r.blocks,
-    boilerplateId: r.boilerplateId, footerId: r.footerId, featuredImageUrl: r.featuredImageUrl, embargoUntil: r.embargoUntil, slug: r.slug, clientId: r.clientId, proactivity: r.proactivity,
+    boilerplateId: r.boilerplateId, footerId: r.footerId, mediaContactId: r.mediaContactId ?? null, featuredImageUrl: r.featuredImageUrl, embargoUntil: r.embargoUntil, slug: r.slug, clientId: r.clientId, proactivity: r.proactivity,
     tagIds: (r.tags ?? []).map((t: any) => t.tagId), assetIds: (r.attachments ?? []).map((a: any) => a.assetId),
   };
 }

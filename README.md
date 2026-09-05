@@ -21,9 +21,13 @@ npm install                     # runs prisma generate
 npx prisma migrate dev --name init   # creates the schema; then 0002 adds search indexes
 npm run db:seed                 # demo account: demo@pressdesk.local / demo-password-1
 npm run dev                     # http://localhost:3000
-npm run worker                  # in a second terminal
+npm run worker                  # in a second terminal (sends, webhooks, imports, verification, RSS, housekeeping)
 npm test
 ```
+
+Demo sign-ins after seeding: `demo@pressdesk.local` (owner, super-admin) and `sam@pressdesk.local` (editor) on the Northstar Communications workspace, `owner2@pressdesk.local` on Second Agency, all with `demo-password-1`. The seed prints a demo API key for `/api/v1`.
+
+Optional integrations are all off until their env vars are set: Resend (`EMAIL_PROVIDER=resend`), Stripe, Google sign-in, S3 (`STORAGE_DRIVER=s3`), IMAP reply detection, the Response Desk shared inbox, and SMTP email verification. See `.env.example`.
 
 Or everything in containers: `docker compose up --build`.
 
@@ -44,15 +48,25 @@ src/lib/auth.ts               sessions, tokens, tenancy resolver, plan-limit ass
 src/lib/plans.ts              plan limits (edit here)
 src/lib/contacts/filters.ts   URL <-> filter state <-> Prisma where
 src/lib/contacts/import.ts    parse, auto-map, normalize, dedupe (pure)
-src/lib/email/                provider abstraction, event normalizer, event applier
-src/server/*.ts               server actions (contacts, auth, team, views)
-src/app/(auth)                login, register, verify, reset
+src/lib/email/                provider abstraction, event normalizer, event applier, reply matching
+src/lib/releases/             release filters, renderers (email, newsroom, print), blocks, recipients
+src/lib/newsroom/, library/   public newsroom data, RSS, host resolution; asset kinds and queries
+src/lib/coverage/, planning/  coverage filters and metadata extraction; calendar, charts, reports
+src/lib/reports/              coverage PDF (pdf-lib) and Need to Know docx
+src/lib/settings/, billing/   webhooks (emit, sign, deliver), Stripe sync
+src/lib/responseDesk/         SLA, statements, inbox normalisation
+src/lib/api/                  API key handler, pagination, zod schemas, OpenAPI document
+src/lib/storage.ts, queue.ts  object storage (S3 or local disk) and BullMQ queues
+src/server/*.ts               server actions per module
+src/app/(auth)                login, register, verify, reset, Google sign-in
 src/app/(app)                 authenticated app; layout renders the shell
-src/app/api/v1                public REST API (Bearer API key)
-src/app/api/webhooks          email provider + Stripe receivers
-src/worker/index.ts           BullMQ workers
-tests/                        vitest
-docs/DEPLOY.md                production guide
+src/app/n, r, o, t, u         public newsroom, short links, open pixel, tracked links, unsubscribe
+src/app/api/v1                public REST API (Bearer API key) and /api/v1/openapi.json
+src/app/api/webhooks          email provider, inbound reply, inbox, Stripe receivers
+src/worker/index.ts           BullMQ worker; one JobModule per file under src/worker/jobs
+prisma/seed.ts + seed/        demo data, one seeder per module
+tests/                        vitest (pure logic only, no DB)
+docs/DEPLOY.md                production guide; docs/CONVENTIONS.md before adding code
 ```
 
-See `CHANGELOG.md` for what is built and `TODO.md` for what is deferred, in build order.
+See `CHANGELOG.md` for what is built and `TODO.md` for what is still open.

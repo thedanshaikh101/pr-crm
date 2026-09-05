@@ -25,7 +25,7 @@ export async function ReleaseDetail({ kind, id, searchParams }: { kind: Kind; id
     selected ? db.distributionRecipient.findMany({ where: { distributionId: selected.id, ...recipientWhereFor(who) }, orderBy: { id: "asc" }, take: 500 }) : Promise.resolve([]),
     dists.length ? db.distributionRecipient.groupBy({ by: ["distributionId"], where: { distributionId: { in: dists.map((d) => d.id) } }, _count: { firstOpenAt: true } }) : Promise.resolve([] as any[]),
     db.user.findMany({ where: { id: { in: [r.createdById, r.updatedById].filter(Boolean) as string[] } }, select: { id: true, name: true } }),
-    db.boilerplate.findMany({ where: { accountId: v.account.id, id: { in: [r.boilerplateId, r.footerId, readMediaContactId(r.blocks)].filter(Boolean) as string[] } }, select: { id: true, name: true, kind: true } }),
+    db.boilerplate.findMany({ where: { accountId: v.account.id, id: { in: [r.boilerplateId, r.footerId, readMediaContactId(r)].filter(Boolean) as string[] } }, select: { id: true, name: true, kind: true } }),
   ]);
   const opens = (did: string) => (opensByDist as any[]).find((x) => x.distributionId === did)?._count.firstOpenAt ?? 0;
   const userName = (uid: string | null) => users.find((u: any) => u.id === uid)?.name ?? "Unknown";
@@ -128,7 +128,7 @@ export async function ReleaseDetail({ kind, id, searchParams }: { kind: Kind; id
             <Row k="Tags" val={r.tags.map((t: any) => <span key={t.tagId} className="chip ml-1" style={{ background: t.tag.color + "22", color: t.tag.color }}>{t.tag.name}</span>)} />
             <Row k="Boilerplate" val={bpName(r.boilerplateId)} />
             <Row k="Footer" val={bpName(r.footerId)} />
-            <Row k="Media contact" val={bpName(readMediaContactId(r.blocks))} />
+            <Row k="Media contact" val={bpName(readMediaContactId(r))} />
             <Row k="Attachments" val={r.attachments.map((a: any) => <span key={a.assetId} className="chip ml-1">{a.asset.name}</span>)} />
             <Row k="Embargo" val={r.embargoUntil?.toLocaleString()} />
             <Row k="Created" val={`${r.createdAt.toLocaleString()} by ${userName(r.createdById)}`} />

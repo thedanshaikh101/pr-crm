@@ -17,14 +17,25 @@ export function ListToolbar(props: {
   filterCount: number;
   view: "table" | "cards";
   total: number; from: number; to: number; page: number; pages: number; per: number;
-  hrefFor: (patch: Record<string, unknown>) => string;
+  basePath: string;
+  placeholder?: string;
+  /** Current query string (with or without the leading ?). Links are built by merging a patch into it. */
+  query: string;
   resetHref: string;
   columns?: Col[];
   savedViews?: { id: string; name: string; params: string }[];
   currentQuery: string;
   drawer: React.ReactNode;
 }) {
-  const { hrefFor } = props;
+  const hrefFor = (patch: Record<string, unknown>) => {
+    const p = new URLSearchParams(props.query.replace(/^\?/, ""));
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined || v === null || v === "" || v === false || (k === "page" && v === 1)) p.delete(k);
+      else p.set(k, Array.isArray(v) ? v.join(",") : String(v));
+    }
+    const s = p.toString();
+    return `${props.basePath}${s ? `?${s}` : ""}`;
+  };
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [cols, setCols] = useState(false);
@@ -54,7 +65,7 @@ export function ListToolbar(props: {
     <div className="mb-2">
       <div className="flex flex-wrap items-center gap-2">
         <form className="basis-full sm:basis-auto sm:flex-1 sm:min-w-[16rem]" onSubmit={(e) => { e.preventDefault(); router.push(hrefFor({ q, page: 1 })); }} role="search">
-          <input aria-label="Search" className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, outlet, email, title" />
+          <input aria-label="Search" className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={props.placeholder ?? "Search name, outlet, email, title"} />
         </form>
         {props.columns && (
           <div className="relative">

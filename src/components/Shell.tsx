@@ -3,6 +3,7 @@ import { logout, switchAccount } from "@/server/auth";
 import type { Viewer } from "@/lib/auth";
 import { NAV } from "./nav";
 import { GlobalSearch } from "./GlobalSearch";
+import { ImpersonationBar } from "./admin/ImpersonationBar";
 
 function Initials({ name }: { name: string }) {
   const i = name.split(/\s+/).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
@@ -68,6 +69,7 @@ export function Shell({ viewer, children, banner }: { viewer: Viewer; children: 
           ) : <span className="mr-2 hidden text-xs text-neutral-500 md:inline">{viewer.account.name}</span>}
           <GlobalSearch />
         </header>
+        <ImpersonationBar viewer={viewer} />
         {banner}
         <main className="min-w-0 flex-1 p-3 md:p-5">{children}</main>
       </div>

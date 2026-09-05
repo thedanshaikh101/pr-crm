@@ -30,7 +30,7 @@ export const seedReleases: SeedModule = async (db, ctx) => {
   for (const [i, r] of releases.entries()) {
     const boilerplate = r.clientId === clients[1]?.id ? bp[1] : bp[0];
     await db.release.update({ where: { id: r.id }, data: {
-      boilerplateId: boilerplate.id, footerId: bp[2].id, blocks: { mediaContactId: bp[3].id }, subheadline: r.subheadline ?? faker.lorem.sentence({ min: 8, max: 14 }).replace(/\.$/, ""),
+      boilerplateId: boilerplate.id, footerId: bp[2].id, mediaContactId: bp[3].id, subheadline: r.subheadline ?? faker.lorem.sentence({ min: 8, max: 14 }).replace(/\.$/, ""),
       body: `${r.body}<p>Read more at <a href="https://northstar.example/${faker.lorem.slug()}">northstar.example</a>.</p>`, updatedById: ctx.ownerId,
       tags: { create: [{ tagId: tags[i % 3].id }, ...(i === 0 ? [{ tagId: tags[1].id }] : [])] },
     } });

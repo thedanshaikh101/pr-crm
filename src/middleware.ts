@@ -38,14 +38,16 @@ export function middleware(req: NextRequest) {
     headers.set("x-newsroom-print", "1");
     return NextResponse.next({ request: { headers } });
   }
-  if (PUBLIC.some((re) => re.test(pathname))) return NextResponse.next();
+  const headers = new Headers(req.headers);
+  headers.set("x-pd-path", pathname);
+  if (PUBLIC.some((re) => re.test(pathname))) return NextResponse.next({ request: { headers } });
   if (!req.cookies.get("pd_session")) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
-  return NextResponse.next();
+  return NextResponse.next({ request: { headers } });
 }
 
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };

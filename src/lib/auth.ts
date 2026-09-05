@@ -55,7 +55,7 @@ export async function destroySession() {
 export type Viewer = {
   session: { id: string; impersonatedBy: string | null };
   user: { id: string; email: string; name: string; isSuperAdmin: boolean; timezone: string; lastSignInAt: Date | null; avatarUrl: string | null };
-  account: { id: string; name: string; slug: string; plan: string; timezone: string; trialEndsAt: Date | null; suspendedAt: Date | null };
+  account: { id: string; name: string; slug: string; plan: string; timezone: string; trialEndsAt: Date | null; suspendedAt: Date | null; suspendedReason: string | null };
   role: "OWNER" | "ADMIN" | "EDITOR" | "VIEWER";
   memberships: { accountId: string; name: string; role: string }[];
 };
@@ -73,7 +73,7 @@ export async function getViewer(): Promise<Viewer | null> {
   if (!session || session.expiresAt < new Date()) return null;
   const u = session.user;
   const memberships = u.memberships as any[];
-  let m = memberships.find((x) => x.accountId === session.activeAccountId) ?? memberships[0];
+  let m = memberships.find((x) => x.accountId === session.activeAccountId) ?? (session.impersonatedBy ? undefined : memberships[0]);
   // super-admin impersonation
   if (!m && session.impersonatedBy && session.activeAccountId) {
     const account = await db.account.findUnique({ where: { id: session.activeAccountId } });
@@ -85,7 +85,7 @@ export async function getViewer(): Promise<Viewer | null> {
     user: { id: u.id, email: u.email, name: u.name, isSuperAdmin: u.isSuperAdmin, timezone: u.timezone, lastSignInAt: u.lastSignInAt, avatarUrl: u.avatarUrl },
     account: {
       id: m.account.id, name: m.account.name, slug: m.account.slug, plan: m.account.plan,
-      timezone: m.account.timezone, trialEndsAt: m.account.trialEndsAt, suspendedAt: m.account.suspendedAt,
+      timezone: m.account.timezone, trialEndsAt: m.account.trialEndsAt, suspendedAt: m.account.suspendedAt, suspendedReason: m.account.suspendedReason ?? null,
     },
     role: m.role,
     memberships: memberships.map((x) => ({ accountId: x.accountId, name: x.account.name, role: x.role })),
@@ -95,7 +95,12 @@ export async function getViewer(): Promise<Viewer | null> {
 export async function requireViewer(): Promise<Viewer> {
   const v = await getViewer();
   if (!v) redirect("/login");
-  if (v.account.suspendedAt) redirect("/suspended");
+  if (v.account.suspendedAt) {
+    // Expired trials may still reach billing to subscribe. Middleware sets x-pd-path.
+    const path = headers().get("x-pd-path") ?? "";
+    const billing = v.account.suspendedReason === "trial_expired" && path.startsWith("/settings/billing");
+    if (!billing) redirect("/suspended");
+  }
   return v;
 }
 

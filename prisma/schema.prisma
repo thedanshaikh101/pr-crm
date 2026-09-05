@@ -608,6 +608,7 @@ model Release {
   blocks           Json? // newsletter block layout
   boilerplateId    String?
   footerId         String?
+  mediaContactId   String?
   featuredImageUrl String?
   shortCode        String             @unique @default(cuid())
   publishedAt      DateTime?

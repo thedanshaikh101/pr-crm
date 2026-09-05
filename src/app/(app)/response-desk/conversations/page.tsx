@@ -21,7 +21,6 @@ export default async function ConversationsPage({ searchParams }: { searchParams
   ]);
   const who = nameOf(team);
   const pages = Math.max(1, Math.ceil(total / f.per));
-  const hrefFor = (patch: Record<string, unknown>) => `/response-desk/conversations${toConversationQuery({ ...f, ...(patch as any) })}`;
   const filtered = activeConversationFilterCount(f) > 0 || !!f.q;
   const label = (c: any) => c.outletName ?? (c.contact ? `${c.contact.firstName} ${c.contact.lastName}`.trim() : "Unknown outlet");
 
@@ -47,7 +46,7 @@ export default async function ConversationsPage({ searchParams }: { searchParams
         <Link href="/response-desk/conversations/new" className="btn btn-primary">Log conversation</Link>
       </div>
       <ListToolbar screen="conversations" q={f.q ?? ""} filterCount={activeConversationFilterCount(f)} view={view} total={total} from={total ? (f.page - 1) * f.per + 1 : 0} to={Math.min(total, f.page * f.per)} page={f.page} pages={pages} per={f.per}
-        hrefFor={hrefFor} resetHref="/response-desk/conversations" currentQuery={toConversationQuery(f)} drawer={drawer} />
+        basePath="/response-desk/conversations" query={toConversationQuery(f)} placeholder="Search question, outlet, contact" resetHref="/response-desk/conversations" currentQuery={toConversationQuery(f)} drawer={drawer} />
       <div className="mb-2 flex flex-wrap gap-1 text-xs">
         {[["", "All"], ["open=1", "Open"], ["overdue=1", "Overdue"], ["mine=1&open=1", "Mine"], ["status=RESPONDED", "Responded"], ["status=CLOSED", "Closed"]].map(([qs, l]) => <Link key={l} href={`/response-desk/conversations${qs ? "?" + qs : ""}`} className="btn px-2 py-0.5">{l}</Link>)}
       </div>

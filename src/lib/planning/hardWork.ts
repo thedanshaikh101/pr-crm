@@ -19,7 +19,7 @@ export async function hardWorkRows(accountId: string, from: Date, to: Date, clie
     db.distribution.groupBy({ by: ["sentById"], where: { accountId, isTest: false, status: "SENT", createdAt: inRange, ...clientRel }, _count: { _all: true }, _sum: { recipientCount: true } }),
     db.coverage.groupBy({ by: ["createdById"], where: { accountId, deletedAt: null, createdAt: inRange, ...client }, _count: { _all: true } }),
     db.conversation.groupBy({ by: ["assigneeId"], where: { accountId, createdAt: inRange }, _count: { _all: true } }),
-    db.auditLog.groupBy({ by: ["userId"], where: { accountId, createdAt: inRange, action: { in: ["statement.create", "statement.version", "statement.update"] } }, _count: { _all: true } }),
+    db.auditLog.groupBy({ by: ["userId"], where: { accountId, createdAt: inRange, action: { in: ["statement.create", "statement.update", "statement.restore"] } }, _count: { _all: true } }),
     db.activity.groupBy({ by: ["assigneeId"], where: { accountId, completedAt: inRange }, _count: { _all: true } }),
     db.note.groupBy({ by: ["authorId"], where: { accountId, createdAt: inRange }, _count: { _all: true } }),
     db.conversationNote.groupBy({ by: ["authorId"], where: { conversation: { accountId }, createdAt: inRange }, _count: { _all: true } }),

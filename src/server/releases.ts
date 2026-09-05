@@ -73,7 +73,7 @@ async function toPatch(accountId: string, tz: string, d: ReleaseData, excludeId?
       kind: d.kind, headline: d.headline, subheadline: d.subheadline || null, datelineCity: d.datelineCity || null,
       datelineDate: datelineDate && !isNaN(datelineDate.getTime()) ? datelineDate : null,
       body: cleanHtml(d.body), blocks: blocksColumnFor(d.kind, blocks, ok(d.mediaContactId)) as any,
-      boilerplateId: ok(d.boilerplateId), footerId: ok(d.footerId), featuredImageUrl: d.featuredImageUrl || null,
+      boilerplateId: ok(d.boilerplateId), footerId: ok(d.footerId), mediaContactId: d.kind === "NEWSLETTER" ? null : ok(d.mediaContactId), featuredImageUrl: d.featuredImageUrl || null,
       clientId: clients[0] ?? null, proactivity: d.proactivity, embargoUntil: d.embargoUntil ? localToUtc(d.embargoUntil, tz) : null, slug,
     },
     tagIds: Array.from(new Set([...tags, ...newTagIds])),
@@ -239,7 +239,7 @@ export async function renderPreview(fd: FormData): Promise<{ email: string; news
   const d = fromForm(fd);
   const fake = {
     kind: d.kind, headline: d.headline || "Untitled", subheadline: d.subheadline, datelineCity: d.datelineCity, datelineDate: d.datelineDate ? new Date(d.datelineDate) : null, body: d.body,
-    blocks: d.kind === "NEWSLETTER" ? parseBlocks(safeJson(d.blocks)) : d.mediaContactId ? { mediaContactId: d.mediaContactId } : null,
+    blocks: d.kind === "NEWSLETTER" ? parseBlocks(safeJson(d.blocks)) : null, mediaContactId: d.mediaContactId || null,
     boilerplateId: d.boilerplateId || null, footerId: d.footerId || null, featuredImageUrl: d.featuredImageUrl || null,
     attachments: (await db.asset.findMany({ where: { accountId: v.account.id, id: { in: d.assetIds } }, select: { id: true, name: true, storageKey: true, externalUrl: true, kind: true, publicToken: true } })).map((asset: any) => ({ asset })),
   };

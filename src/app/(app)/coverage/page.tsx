@@ -69,7 +69,7 @@ export default async function CoveragePage({ searchParams }: { searchParams: Rec
 
       <ListToolbar
         screen="coverage" q={f.q ?? ""} filterCount={activeFilterCount(f)} view={f.view} total={total} from={from} to={to} page={f.page} pages={pages} per={f.per}
-        hrefFor={(patch) => `/coverage${toQuery({ ...f, ...patch })}`} resetHref="/coverage" columns={columns}
+        basePath="/coverage" query={toQuery(f)} placeholder="Search headline, outlet, summary" resetHref="/coverage" columns={columns}
         savedViews={savedViews.map((s: any) => ({ id: s.id, name: s.name, params: s.params }))} currentQuery={toQuery(f)}
         drawer={<CoverageFilterDrawer f={f} clients={clients} releases={releases.map((r: any) => ({ id: r.id, name: r.headline }))} tags={tags} orgs={orgs} contacts={contacts.map((c: any) => ({ id: c.id, name: `${c.firstName} ${c.lastName}`.trim() }))} />}
       />

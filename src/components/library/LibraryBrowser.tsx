@@ -11,8 +11,8 @@ export type AssetRow = {
   folderId: string | null; folderName: string | null; createdAt: string; thumbUrl: string | null; usedIn: number; deleted: boolean; inMediaKit: boolean;
 };
 
-export function LibraryBrowser({ rows, view, folders, hrefForAsset, canWrite, deletedView }: {
-  rows: AssetRow[]; view: "grid" | "table"; folders: { id: string; name: string }[]; hrefForAsset: (id: string) => string; canWrite: boolean; deletedView: boolean;
+export function LibraryBrowser({ rows, view, folders, assetHref, canWrite, deletedView }: {
+  rows: AssetRow[]; view: "grid" | "table"; folders: { id: string; name: string }[]; assetHref: string; canWrite: boolean; deletedView: boolean;
 }) {
   const router = useRouter();
   const [sel, setSel] = useState<Set<string>>(new Set());
@@ -54,7 +54,7 @@ export function LibraryBrowser({ rows, view, folders, hrefForAsset, canWrite, de
             <li key={a.id} className={`group relative overflow-hidden rounded-lg border bg-white ${sel.has(a.id) ? "border-accent ring-1 ring-accent" : "border-line"}`}>
               <span className="absolute left-2 top-2 z-10"><Check id={a.id} name={a.name} /></span>
               {a.inMediaKit && <span className="absolute right-2 top-2 z-10 rounded bg-white/90 px-1 text-[10px] font-medium text-accent" title="In media kit">Kit</span>}
-              <Link href={hrefForAsset(a.id)} className="block">
+              <Link href={assetHref.replace("__ID__", a.id)} className="block">
                 {a.thumbUrl ? <img src={a.thumbUrl} alt={a.name} className="h-32 w-full bg-neutral-100 object-cover" loading="lazy" /> : <div className="grid h-32 place-items-center bg-neutral-50 text-4xl" aria-hidden>{fileIcon(a.kind, a.mime)}</div>}
                 <div className="p-2 text-xs">
                   <p className="truncate font-medium text-sm" title={a.name}>{a.name}</p>
@@ -72,7 +72,7 @@ export function LibraryBrowser({ rows, view, folders, hrefForAsset, canWrite, de
               {rows.map((a) => (
                 <tr key={a.id}>
                   {canWrite && <td><Check id={a.id} name={a.name} /></td>}
-                  <td><Link href={hrefForAsset(a.id)} className="flex items-center gap-2 font-medium hover:underline"><span aria-hidden>{fileIcon(a.kind, a.mime)}</span><span className="truncate">{a.name}</span>{a.inMediaKit && <span className="pill bg-accentSoft text-accent">kit</span>}</Link></td>
+                  <td><Link href={assetHref.replace("__ID__", a.id)} className="flex items-center gap-2 font-medium hover:underline"><span aria-hidden>{fileIcon(a.kind, a.mime)}</span><span className="truncate">{a.name}</span>{a.inMediaKit && <span className="pill bg-accentSoft text-accent">kit</span>}</Link></td>
                   <td>{a.kind.replace("_", " ")}</td>
                   <td className="whitespace-nowrap">{a.size ? formatBytes(a.size) : ""}</td>
                   <td className="whitespace-nowrap">{a.width && a.height ? `${a.width} x ${a.height}` : ""}</td>

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 
 import type { ProviderEvent } from "./normalize";
+import { emitWebhook } from "@/lib/settings/webhooks";
 export { normalizeResendEvent } from "./normalize";
 
 /** Apply an event to recipient + contact + suppression list. Idempotent per event type where it matters. */
@@ -26,6 +27,7 @@ export async function applyEmailEvent(e: ProviderEvent) {
   if ((e.type === "bounced" && e.bounceType !== "soft") || e.type === "complained" || e.type === "unsubscribed") {
     await db.suppression.upsert({ where: { accountId_email: { accountId, email: r.email } }, create: { accountId, email: r.email, reason: e.type === "bounced" ? "hard_bounce" : e.type === "complained" ? "complaint" : "unsubscribe" }, update: {} });
     if (r.contactId) await db.contact.update({ where: { id: r.contactId }, data: { emailStatus: e.type === "bounced" ? "BOUNCED" : e.type === "complained" ? "COMPLAINED" : "UNSUBSCRIBED" } });
+    if (e.type === "bounced") await emitWebhook(accountId, "contact.bounced", { contactId: r.contactId, email: r.email, bounceType: e.bounceType ?? "hard", distributionId: r.distributionId }).catch(() => 0);
   }
   if (e.type === "delivered" && r.contactId) await db.contact.updateMany({ where: { id: r.contactId, emailStatus: { in: ["UNVERIFIED", "RISKY"] } }, data: { emailStatus: "VALID", emailVerifiedAt: at } });
   return true;

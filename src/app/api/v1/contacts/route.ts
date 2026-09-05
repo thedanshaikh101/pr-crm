@@ -7,7 +7,7 @@ import { ContactCreateBody } from "@/lib/api/schemas";
 import { contactOut } from "@/lib/api/serialize";
 import { ensureOrg, setTags } from "@/lib/api/contactsShared";
 
-export const CONTACT_INCLUDE = { organization: { select: { name: true } }, tags: { include: { tag: { select: { name: true } } } } } as const;
+const CONTACT_INCLUDE = { organization: { select: { name: true } }, tags: { include: { tag: { select: { name: true } } } } } as const;
 
 // GET /api/v1/contacts?q=&list=&tag=&updatedSince=&page=&per=
 export const GET = withApiKey(async ({ url, account }) => {

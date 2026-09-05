@@ -91,7 +91,7 @@ export default async function LibraryPage({ searchParams }: { searchParams: Reco
           </form>
 
           <p className="mb-2 text-xs text-neutral-500">Showing {total ? (f.page - 1) * f.per + 1 : 0} to {Math.min(total, f.page * f.per)} of {total}</p>
-          <LibraryBrowser rows={assetRows} view={f.view} folders={folders.map((x: any) => ({ id: x.id, name: x.name }))} hrefForAsset={(id) => `/library${libraryQuery(f, { asset: id })}`} canWrite={canWrite} deletedView={f.deleted} />
+          <LibraryBrowser rows={assetRows} view={f.view} folders={folders.map((x: any) => ({ id: x.id, name: x.name }))} assetHref={`/library${libraryQuery(f, { asset: "__ID__" })}`} canWrite={canWrite} deletedView={f.deleted} />
 
           {!total && (
             <div className="card mt-2 p-10 text-center">

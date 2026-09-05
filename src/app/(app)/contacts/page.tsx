@@ -50,7 +50,7 @@ export default async function ContactsPage({ searchParams }: { searchParams: Rec
         page={f.page}
         pages={pages}
         per={f.per}
-        hrefFor={(patch) => `/contacts${toQuery({ ...f, ...patch })}`}
+        basePath="/contacts" query={toQuery(f)}
         resetHref="/contacts"
         columns={columns}
         savedViews={savedViews.map((s: any) => ({ id: s.id, name: s.name, params: s.params }))}

@@ -21,7 +21,7 @@ export async function ReleaseEditorPage({ kind, id, searchParams }: { kind: Kind
   ]);
   const initial: EditorInitial = {
     headline: r?.headline ?? "", subheadline: r?.subheadline ?? "", datelineCity: r?.datelineCity ?? "", datelineDate: r?.datelineDate ? r.datelineDate.toISOString().slice(0, 10) : "",
-    body: r?.body ?? "", blocks: parseBlocks(r?.blocks), boilerplateId: r?.boilerplateId ?? "", footerId: r?.footerId ?? "", mediaContactId: readMediaContactId(r?.blocks) ?? "",
+    body: r?.body ?? "", blocks: parseBlocks(r?.blocks), boilerplateId: r?.boilerplateId ?? "", footerId: r?.footerId ?? "", mediaContactId: readMediaContactId(r) ?? "",
     featuredImageUrl: r?.featuredImageUrl ?? "", clientId: r?.clientId ?? "", proactivity: r?.proactivity ?? "UNSET", embargoUntil: r?.embargoUntil ? utcToLocalInput(r.embargoUntil, v.account.timezone) : "",
     slug: r?.slug ?? "", tagIds: (r?.tags ?? []).map((t: any) => t.tagId), assetIds: (r?.attachments ?? []).map((a: any) => a.assetId), status: r?.status ?? "DRAFT",
   };
