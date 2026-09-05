@@ -1,2 +1,2 @@
-import { ModulePlanned } from "@/components/ModulePlanned";
-export default function Page() { return <ModulePlanned name="Newsletters" step={2} includes={["Block-based layout using the release engine"]} />; }
+import { ReleaseListPage } from "@/components/releases/ReleaseListPage";
+export default function Page({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) { return <ReleaseListPage kind="NEWSLETTER" searchParams={searchParams} />; }

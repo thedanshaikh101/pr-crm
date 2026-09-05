@@ -1,2 +1,2 @@
-import { ModulePlanned } from "@/components/ModulePlanned";
-export default function Page() { return <ModulePlanned name="Press Release" step={2} includes={["Detail side panel with Distribution and Information tabs"]} />; }
+import { ReleaseDetail } from "@/components/releases/ReleaseDetail";
+export default function Page({ params, searchParams }: { params: { id: string }; searchParams: Record<string, string | undefined> }) { return <ReleaseDetail kind="PRESS_RELEASE" id={params.id} searchParams={searchParams} />; }
