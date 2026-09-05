@@ -1,0 +1,2 @@
+import { ModulePlanned } from "@/components/ModulePlanned";
+export default function Page() { return <ModulePlanned name="Press Releases" step={2} includes={["Card and table list with status pills and open-rate tiles","Full-page editor with boilerplate and media-contact pickers","Distribution flow: recipients, wrapper, test send, schedule, throttle","Detail side panel: per-recipient tracking, build list from openers"]} />; }

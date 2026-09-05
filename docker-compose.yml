@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pressdesk
+      POSTGRES_PASSWORD: pressdesk
+      POSTGRES_DB: pressdesk
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["minio:/data"]
+  mailpit:
+    image: axllent/mailpit
+    ports: ["8025:8025", "1025:1025"]
+  app:
+    build: .
+    depends_on: [db, redis]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://pressdesk:pressdesk@db:5432/pressdesk?schema=public
+      REDIS_URL: redis://redis:6379
+    ports: ["3000:3000"]
+    command: sh -c "npx prisma migrate deploy && node server.js"
+  worker:
+    build: .
+    depends_on: [db, redis]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://pressdesk:pressdesk@db:5432/pressdesk?schema=public
+      REDIS_URL: redis://redis:6379
+    command: npx tsx src/worker/index.ts
+volumes:
+  pgdata: {}
+  minio: {}

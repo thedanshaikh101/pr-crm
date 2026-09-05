@@ -1,0 +1,1192 @@
+// Pressdesk data model. Every tenant-scoped table carries accountId and is
+// indexed on it. Soft delete via deletedAt (30-day recycle bin).
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm, citext]
+}
+
+// ---------------------------------------------------------------- Tenancy
+
+enum PlanTier {
+  TRIAL
+  STARTER
+  AGENCY
+  ENTERPRISE
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+model Account {
+  id                 String    @id @default(cuid())
+  name               String
+  slug               String    @unique
+  timezone           String    @default("America/Toronto")
+  plan               PlanTier  @default(TRIAL)
+  billingInterval    String? // month | year
+  stripeCustomerId   String?   @unique
+  stripeSubId        String?   @unique
+  trialEndsAt        DateTime?
+  suspendedAt        DateTime?
+  suspendedReason    String?
+  featureFlags       Json      @default("{}")
+  retentionDays      Int? // data-retention policy, null = keep
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  memberships        Membership[]
+  invitations        Invitation[]
+  apiKeys            ApiKey[]
+  webhooks           WebhookEndpoint[]
+  auditLogs          AuditLog[]
+  usage              UsageCounter[]
+  organizations      Organization[]
+  contacts           Contact[]
+  tagGroups          TagGroup[]
+  tags               Tag[]
+  lists              List[]
+  imports            Import[]
+  savedViews         SavedView[]
+  clients            Client[]
+  releases           Release[]
+  boilerplates       Boilerplate[]
+  sendingDomains     SendingDomain[]
+  distributions      Distribution[]
+  suppressions       Suppression[]
+  assets             Asset[]
+  folders            Folder[]
+  newsroom           NewsroomSettings?
+  coverage           Coverage[]
+  topics             Topic[]
+  themes             Theme[]
+  conversations      Conversation[]
+  interviewRequests  InterviewRequest[]
+  statements         Statement[]
+  activities         Activity[]
+  attachments        Attachment[]
+  calendarEvents     CalendarEvent[]
+  classifications    Classification[]
+  caseTypes          PickListItem[]
+  notes              Note[]
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique @db.Citext
+  name           String
+  passwordHash   String?
+  googleId       String?   @unique
+  avatarUrl      String?
+  timezone       String    @default("America/Toronto")
+  emailVerifiedAt DateTime?
+  isSuperAdmin   Boolean   @default(false)
+  notifyPrefs    Json      @default("{}")
+  signatureBlock String? // "My Contact Information"
+  lastSignInAt   DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  memberships    Membership[]
+  sessions       Session[]
+  tokens         VerificationToken[]
+  layouts        ColumnLayout[]
+}
+
+model Membership {
+  id            String   @id @default(cuid())
+  accountId     String
+  userId        String
+  role          Role     @default(EDITOR)
+  jobTitle      String?
+  deactivatedAt DateTime?
+  createdAt     DateTime @default(now())
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, userId])
+  @@index([userId])
+}
+
+model Session {
+  id             String   @id @default(cuid())
+  userId         String
+  activeAccountId String?
+  impersonatedBy String? // super-admin user id when impersonating
+  expiresAt      DateTime
+  ip             String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+enum TokenPurpose {
+  VERIFY_EMAIL
+  MAGIC_LINK
+  RESET_PASSWORD
+}
+
+model VerificationToken {
+  id        String       @id @default(cuid())
+  userId    String
+  purpose   TokenPurpose
+  tokenHash String       @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Invitation {
+  id        String    @id @default(cuid())
+  accountId String
+  email     String    @db.Citext
+  role      Role      @default(EDITOR)
+  tokenHash String    @unique
+  invitedBy String
+  expiresAt DateTime
+  acceptedAt DateTime?
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  accountId  String
+  name       String
+  keyHash    String    @unique
+  prefix     String
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  account    Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+}
+
+model WebhookEndpoint {
+  id        String   @id @default(cuid())
+  accountId String
+  url       String
+  secret    String
+  events    String[] // release.published, distribution.completed, coverage.created, contact.bounced
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([accountId])
+}
+
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  endpointId String
+  event      String
+  payload    Json
+  status     Int?
+  attempts   Int      @default(0)
+  nextRetryAt DateTime?
+  createdAt  DateTime @default(now())
+  endpoint   WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  accountId String
+  userId    String?
+  action    String // contact.create, list.delete, release.publish ...
+  entity    String?
+  entityId  String?
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt])
+}
+
+model UsageCounter {
+  id        String  @id @default(cuid())
+  accountId String
+  period    String // YYYY-MM
+  emailsSent Int    @default(0)
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, period])
+}
+
+// ---------------------------------------------------------------- Contacts
+
+enum RecordVisibility {
+  SHARED
+  PRIVATE
+}
+
+enum Importance {
+  NOT_RANKED
+  LOW
+  MEDIUM
+  HIGH
+  VIP
+}
+
+enum ContactCategory {
+  MEDIA
+  INFLUENCER
+  ANALYST
+  STAKEHOLDER
+  OTHER
+}
+
+enum PublicationFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  CONTINUOUS
+}
+
+enum EmailStatus {
+  UNVERIFIED
+  VALID
+  INVALID
+  RISKY
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+}
+
+model Classification {
+  id        String   @id @default(cuid())
+  accountId String? // null = system default
+  name      String
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, name])
+}
+
+model Subject {
+  id       String    @id @default(cuid())
+  name     String
+  path     String    @unique // "Health > Wellness & Nutrition"
+  parentId String?
+  parent   Subject?  @relation("SubjectTree", fields: [parentId], references: [id])
+  children Subject[] @relation("SubjectTree")
+  contacts ContactSubject[]
+  orgs     OrganizationSubject[]
+}
+
+model Organization {
+  id              String   @id @default(cuid())
+  accountId       String
+  name            String
+  website         String?
+  domain          String?
+  logoUrl         String?
+  domainAuthority Int?
+  frequency       PublicationFrequency?
+  classifications String[]
+  audienceLocation String[]
+  language        String?
+  newsroomEmail   String?
+  newsroomPhone   String?
+  socials         Json     @default("{}")
+  mergedIntoId    String?
+  deletedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  account         Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contacts        Contact[]
+  subjects        OrganizationSubject[]
+  coverage        Coverage[]
+
+  @@unique([accountId, name])
+  @@index([accountId, deletedAt])
+}
+
+model OrganizationSubject {
+  organizationId String
+  subjectId      String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subject        Subject      @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, subjectId])
+}
+
+model Contact {
+  id                 String   @id @default(cuid())
+  accountId          String
+  organizationId     String?
+  firstName          String
+  lastName           String
+  jobTitle           String?
+  email              String?  @db.Citext
+  emailStatus        EmailStatus @default(UNVERIFIED)
+  emailVerifiedAt    DateTime?
+  landline           String?
+  mobile             String?
+  bio                String?
+  xBio               String?
+  xHandle            String?
+  xFollowers         Int?
+  socials            Json     @default("{}") // facebook, instagram, bluesky, threads, linkedin, website
+  authorPageUrl      String?
+  avatarUrl          String?
+  classifications    String[]
+  audienceLocation   String[]
+  physicalLocation   String?
+  language           String?
+  importance         Importance @default(NOT_RANKED)
+  category           ContactCategory @default(MEDIA)
+  ownerId            String? // teammate user id
+  visibility         RecordVisibility @default(SHARED)
+  isExJournalist     Boolean  @default(false)
+  significantUpdate  String? // text describing what changed
+  significantUpdateAt DateTime?
+  lastContactedAt    DateTime?
+  mergedIntoId       String?
+  importId           String?
+  searchText         String?  @db.Text // denormalized for trigram
+  deletedAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  account            Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  organization       Organization? @relation(fields: [organizationId], references: [id])
+  import             Import?  @relation(fields: [importId], references: [id])
+  subjects           ContactSubject[]
+  tags               ContactTag[]
+  listMembers        ListMember[]
+  notes              Note[]
+  recipients         DistributionRecipient[]
+  coverage           Coverage[]
+  conversations      Conversation[]
+  interviewRequests  InterviewRequest[]
+  contentItems       ContentItem[]
+
+  @@index([accountId, deletedAt])
+  @@index([accountId, email])
+  @@index([accountId, organizationId])
+  @@index([accountId, updatedAt])
+}
+
+model ContactSubject {
+  contactId String
+  subjectId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, subjectId])
+}
+
+// Latest articles by a contact (RSS or manual)
+model ContentItem {
+  id          String   @id @default(cuid())
+  contactId   String
+  title       String
+  url         String
+  publishedAt DateTime?
+  source      String   @default("manual")
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, publishedAt])
+}
+
+model TagGroup {
+  id        String  @id @default(cuid())
+  accountId String
+  name      String // Client, Campaign, Topic
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tags      Tag[]
+
+  @@unique([accountId, name])
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  accountId String
+  groupId   String?
+  name      String
+  color     String   @default("#1F5FBF")
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  group     TagGroup? @relation(fields: [groupId], references: [id])
+  contacts  ContactTag[]
+  releases  ReleaseTag[]
+  coverage  CoverageTag[]
+
+  @@unique([accountId, name])
+}
+
+model ContactTag {
+  contactId String
+  tagId     String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  accountId String
+  contactId String?
+  authorId  String
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+}
+
+model List {
+  id            String   @id @default(cuid())
+  accountId     String
+  name          String
+  description   String?
+  isSmart       Boolean  @default(false)
+  smartFilter   Json? // serialized filter params
+  visibility    RecordVisibility @default(SHARED)
+  ownerId       String?
+  editedById    String?
+  deletedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members       ListMember[]
+  distributions Distribution[]
+  releases      ReleaseList[]
+
+  @@index([accountId, deletedAt])
+}
+
+model ListMember {
+  listId    String
+  contactId String
+  addedAt   DateTime @default(now())
+  list      List     @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([listId, contactId])
+  @@index([contactId])
+}
+
+model SavedView {
+  id        String  @id @default(cuid())
+  accountId String
+  userId    String
+  screen    String // contacts | coverage | releases
+  name      String
+  params    String // URL query string
+  shared    Boolean @default(false)
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, screen])
+}
+
+model ColumnLayout {
+  id      String @id @default(cuid())
+  userId  String
+  screen  String
+  columns Json // [{key, width, visible}]
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, screen])
+}
+
+enum ImportStatus {
+  PENDING
+  MAPPING
+  RUNNING
+  DONE
+  FAILED
+  ROLLED_BACK
+}
+
+model Import {
+  id           String       @id @default(cuid())
+  accountId    String
+  userId       String
+  fileName     String
+  source       String       @default("csv") // csv | xlsx | paste | gsheet
+  status       ImportStatus @default(PENDING)
+  mapping      Json?
+  options      Json? // {onDuplicate: update|skip, listId, newListName}
+  headers      String[]
+  rowCount     Int          @default(0)
+  createdCount Int          @default(0)
+  updatedCount Int          @default(0)
+  skippedCount Int          @default(0)
+  errorCount   Int          @default(0)
+  rawRows      Json? // staged rows before commit (small imports); large go to storage
+  storageKey   String?
+  errorsCsvKey String?
+  rolledBackAt DateTime?
+  createdAt    DateTime     @default(now())
+  finishedAt   DateTime?
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contacts     Contact[]
+
+  @@index([accountId, createdAt])
+}
+
+// ---------------------------------------------------------------- Clients
+
+model Client {
+  id        String   @id @default(cuid())
+  accountId String
+  name      String
+  color     String   @default("#1F5FBF")
+  logoUrl   String?
+  defaultBoilerplateId String?
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  releases  Release[]
+  coverage  Coverage[]
+  events    CalendarEvent[]
+
+  @@unique([accountId, name])
+}
+
+// ---------------------------------------------------------------- Content Hub
+
+enum ReleaseKind {
+  PRESS_RELEASE
+  NEWSLETTER
+}
+
+enum ReleaseStatus {
+  DRAFT
+  SCHEDULED
+  LIVE
+  ARCHIVED
+}
+
+enum Proactivity {
+  PROACTIVE
+  REACTIVE
+  UNSET
+}
+
+model Release {
+  id            String        @id @default(cuid())
+  accountId     String
+  clientId      String?
+  kind          ReleaseKind   @default(PRESS_RELEASE)
+  status        ReleaseStatus @default(DRAFT)
+  proactivity   Proactivity   @default(UNSET)
+  slug          String
+  headline      String
+  subheadline   String?
+  datelineCity  String?
+  datelineDate  DateTime?
+  body          String        @db.Text // HTML
+  blocks        Json? // newsletter block layout
+  boilerplateId String?
+  footerId      String?
+  featuredImageUrl String?
+  shortCode     String        @unique @default(cuid())
+  publishedAt   DateTime?
+  scheduledFor  DateTime?
+  embargoUntil  DateTime?
+  createdById   String
+  updatedById   String?
+  pageviews     Int           @default(0)
+  deletedAt     DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  account       Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  client        Client?       @relation(fields: [clientId], references: [id])
+  versions      ReleaseVersion[]
+  attachments   ReleaseAsset[]
+  tags          ReleaseTag[]
+  lists         ReleaseList[]
+  distributions Distribution[]
+  coverage      Coverage[]
+  pageviewLog   NewsroomPageview[]
+
+  @@unique([accountId, slug])
+  @@index([accountId, status, publishedAt])
+}
+
+model ReleaseVersion {
+  id        String   @id @default(cuid())
+  releaseId String
+  version   Int
+  snapshot  Json
+  savedById String
+  createdAt DateTime @default(now())
+  release   Release  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+
+  @@unique([releaseId, version])
+}
+
+model ReleaseTag {
+  releaseId String
+  tagId     String
+  release   Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([releaseId, tagId])
+}
+
+model ReleaseList {
+  releaseId String
+  listId    String
+  release   Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  list      List    @relation(fields: [listId], references: [id], onDelete: Cascade)
+
+  @@id([releaseId, listId])
+}
+
+model ReleaseAsset {
+  releaseId String
+  assetId   String
+  release   Release @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  asset     Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@id([releaseId, assetId])
+}
+
+enum BoilerplateKind {
+  BOILERPLATE
+  FOOTER
+  MEDIA_CONTACT
+}
+
+model Boilerplate {
+  id        String          @id @default(cuid())
+  accountId String
+  kind      BoilerplateKind
+  name      String
+  body      String          @db.Text
+  clientId  String?
+  isDefault Boolean         @default(false)
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, kind])
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  accountId String
+  name      String
+  parentId  String?
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  assets    Asset[]
+
+  @@index([accountId])
+}
+
+model Asset {
+  id         String   @id @default(cuid())
+  accountId  String
+  folderId   String?
+  name       String
+  kind       String // image | logo | headshot | pdf | bio | video_link
+  storageKey String?
+  externalUrl String?
+  mime       String?
+  size       Int?
+  width      Int?
+  height     Int?
+  tags       String[]
+  publicToken String  @unique @default(cuid())
+  inMediaKit Boolean  @default(false)
+  deletedAt  DateTime?
+  createdAt  DateTime @default(now())
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  folder     Folder?  @relation(fields: [folderId], references: [id])
+  releases   ReleaseAsset[]
+  attachments Attachment[]
+
+  @@index([accountId, deletedAt])
+}
+
+model NewsroomSettings {
+  accountId     String  @id
+  customDomain  String? @unique
+  domainVerifiedAt DateTime?
+  logoUrl       String?
+  headerImageUrl String?
+  primaryColor  String  @default("#1F5FBF")
+  fontFamily    String  @default("Inter")
+  footerHtml    String? @db.Text
+  mediaContactHtml String? @db.Text
+  socials       Json    @default("{}")
+  aboutHtml     String? @db.Text
+  account       Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model NewsroomPageview {
+  id        String   @id @default(cuid())
+  releaseId String
+  referrer  String?
+  ua        String?
+  createdAt DateTime @default(now())
+  release   Release  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+
+  @@index([releaseId, createdAt])
+}
+
+// ---------------------------------------------------------------- Email engine
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
+}
+
+model SendingDomain {
+  id          String       @id @default(cuid())
+  accountId   String
+  domain      String
+  status      DomainStatus @default(PENDING)
+  providerId  String?
+  dnsRecords  Json? // [{type, name, value, verified}]
+  defaultFrom String?
+  verifiedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, domain])
+}
+
+enum DistributionStatus {
+  DRAFT
+  QUEUED
+  SENDING
+  SENT
+  CANCELLED
+  FAILED
+}
+
+model Distribution {
+  id            String   @id @default(cuid())
+  accountId     String
+  releaseId     String
+  listId        String?
+  isTest        Boolean  @default(false)
+  label         String   @default("Live distribution")
+  status        DistributionStatus @default(DRAFT)
+  subject       String
+  preheader     String?
+  fromName      String
+  fromEmail     String
+  replyTo       String?
+  intro         String?  @db.Text
+  teaserMode    Boolean  @default(false)
+  scheduledFor  DateTime?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  sentById      String
+  recipientCount Int     @default(0)
+  jobId         String?
+  createdAt     DateTime @default(now())
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  release       Release  @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  list          List?    @relation(fields: [listId], references: [id])
+  recipients    DistributionRecipient[]
+
+  @@index([accountId, createdAt])
+  @@index([releaseId])
+}
+
+model DistributionRecipient {
+  id             String   @id @default(cuid())
+  distributionId String
+  contactId      String?
+  email          String   @db.Citext
+  name           String?
+  outlet         String?
+  providerMsgId  String?  @unique
+  deliveredAt    DateTime?
+  firstOpenAt    DateTime?
+  openCount      Int      @default(0)
+  clickCount     Int      @default(0)
+  bouncedAt      DateTime?
+  bounceType     String? // hard | soft
+  blockedAt      DateTime?
+  droppedAt      DateTime?
+  complainedAt   DateTime?
+  unsubscribedAt DateTime?
+  repliedAt      DateTime?
+  error          String?
+  distribution   Distribution @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  contact        Contact? @relation(fields: [contactId], references: [id])
+  events         EmailEvent[]
+
+  @@unique([distributionId, email])
+  @@index([contactId])
+}
+
+enum EmailEventType {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  BLOCKED
+  DROPPED
+  COMPLAINED
+  UNSUBSCRIBED
+  REPLIED
+}
+
+model EmailEvent {
+  id          String         @id @default(cuid())
+  recipientId String
+  type        EmailEventType
+  url         String?
+  meta        Json?
+  createdAt   DateTime       @default(now())
+  recipient   DistributionRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, type])
+}
+
+model Suppression {
+  id        String   @id @default(cuid())
+  accountId String
+  email     String   @db.Citext
+  reason    String // unsubscribe | hard_bounce | complaint | manual
+  createdAt DateTime @default(now())
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, email])
+}
+
+model TrackedLink {
+  id        String @id @default(cuid())
+  code      String @unique
+  targetUrl String
+  recipientId String?
+  clicks    Int    @default(0)
+}
+
+// ---------------------------------------------------------------- Coverage
+
+enum CoverageType {
+  BROADCAST
+  ONLINE
+  PRINT
+  RADIO
+  PODCAST
+  SOCIAL
+}
+
+enum CoverageFocus {
+  NATIONAL
+  REGIONAL
+  LOCAL
+  TRADE
+  INTERNATIONAL
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+}
+
+model Coverage {
+  id             String   @id @default(cuid())
+  accountId      String
+  clientId       String?
+  releaseId      String?
+  organizationId String?
+  contactId      String?
+  outletName     String
+  outletLogoUrl  String?
+  headline       String
+  url            String?
+  publishedAt    DateTime
+  type           CoverageType
+  focus          CoverageFocus @default(NATIONAL)
+  sentiment      Sentiment     @default(NEUTRAL)
+  summary        String?
+  notes          String?       @db.Text
+  estimatedReach Int?
+  adValue        Decimal?      @db.Decimal(12, 2)
+  imageUrl       String?
+  screenshotKey  String?
+  pickupCount    Int           @default(0)
+  parentId       String? // syndicated pickup of another coverage item
+  deletedAt      DateTime?
+  createdById    String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  account        Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  client         Client?       @relation(fields: [clientId], references: [id])
+  release        Release?      @relation(fields: [releaseId], references: [id])
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  contact        Contact?      @relation(fields: [contactId], references: [id])
+  tags           CoverageTag[]
+
+  @@index([accountId, publishedAt])
+  @@index([accountId, clientId])
+}
+
+model CoverageTag {
+  coverageId String
+  tagId      String
+  coverage   Coverage @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([coverageId, tagId])
+}
+
+// ---------------------------------------------------------------- Response Desk
+
+model PickListItem {
+  id        String  @id @default(cuid())
+  accountId String
+  kind      String // case_type | topic_type
+  name      String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, kind, name])
+}
+
+model Theme {
+  id        String  @id @default(cuid())
+  accountId String
+  name      String
+  color     String  @default("#1F5FBF")
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  topics    Topic[]
+
+  @@unique([accountId, name])
+}
+
+enum TopicStatus {
+  OPEN
+  MONITORING
+  CLOSED
+}
+
+model Topic {
+  id          String      @id @default(cuid())
+  accountId   String
+  themeId     String?
+  name        String
+  topicType   String?
+  status      TopicStatus @default(OPEN)
+  ownerId     String?
+  description String?     @db.Text
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  theme       Theme?      @relation(fields: [themeId], references: [id])
+  conversations Conversation[]
+  statements  Statement[]
+
+  @@index([accountId, status])
+}
+
+enum Channel {
+  EMAIL
+  PHONE
+  SOCIAL
+  OTHER
+}
+
+enum ConversationStatus {
+  NEW
+  IN_PROGRESS
+  RESPONDED
+  CLOSED
+}
+
+model Conversation {
+  id           String   @id @default(cuid())
+  accountId    String
+  topicId      String?
+  contactId    String?
+  outletName   String?
+  channel      Channel  @default(EMAIL)
+  caseType     String?
+  receivedAt   DateTime @default(now())
+  deadline     DateTime?
+  question     String   @db.Text
+  assigneeId   String?
+  status       ConversationStatus @default(NEW)
+  replySent    String?  @db.Text
+  repliedAt    DateTime?
+  sourceMessageId String? // from inbox integration
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  topic        Topic?   @relation(fields: [topicId], references: [id])
+  contact      Contact? @relation(fields: [contactId], references: [id])
+  notes        ConversationNote[]
+  attachments  Attachment[]
+
+  @@index([accountId, status, deadline])
+}
+
+model ConversationNote {
+  id             String   @id @default(cuid())
+  conversationId String
+  authorId       String
+  body           String   @db.Text
+  createdAt      DateTime @default(now())
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+}
+
+enum InterviewFormat {
+  LIVE
+  PRE_RECORD
+  PHONE
+  IN_PERSON
+}
+
+enum InterviewStatus {
+  REQUESTED
+  PROPOSED
+  CONFIRMED
+  COMPLETED
+  DECLINED
+  CANCELLED
+}
+
+model InterviewRequest {
+  id            String   @id @default(cuid())
+  accountId     String
+  contactId     String?
+  outletName    String?
+  spokesperson  String
+  format        InterviewFormat @default(PHONE)
+  proposedTimes Json     @default("[]")
+  confirmedAt   DateTime?
+  status        InterviewStatus @default(REQUESTED)
+  outcome       String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  contact       Contact? @relation(fields: [contactId], references: [id])
+
+  @@index([accountId, status])
+}
+
+enum StatementStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  EXPIRED
+}
+
+model Statement {
+  id         String          @id @default(cuid())
+  accountId  String
+  topicId    String?
+  title      String
+  body       String          @db.Text
+  status     StatementStatus @default(DRAFT)
+  approvedById String?
+  approvedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  account    Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  topic      Topic?          @relation(fields: [topicId], references: [id])
+  versions   StatementVersion[]
+
+  @@index([accountId, status])
+}
+
+model StatementVersion {
+  id          String    @id @default(cuid())
+  statementId String
+  version     Int
+  body        String    @db.Text
+  savedById   String
+  createdAt   DateTime  @default(now())
+  statement   Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@unique([statementId, version])
+}
+
+enum ActivityKind {
+  CALL
+  EMAIL
+  MEETING
+  TASK
+}
+
+model Activity {
+  id          String       @id @default(cuid())
+  accountId   String
+  kind        ActivityKind @default(TASK)
+  title       String
+  body        String?      @db.Text
+  assigneeId  String?
+  dueAt       DateTime?
+  completedAt DateTime?
+  entity      String? // contact | conversation | release ...
+  entityId    String?
+  createdById String
+  createdAt   DateTime     @default(now())
+  account     Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, assigneeId, completedAt])
+}
+
+model Attachment {
+  id             String   @id @default(cuid())
+  accountId      String
+  assetId        String
+  entity         String // conversation | statement | topic | interview
+  entityId       String
+  conversationId String?
+  createdAt      DateTime @default(now())
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  asset          Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@index([accountId, entity, entityId])
+}
+
+// ---------------------------------------------------------------- Planning
+
+enum CalendarKind {
+  RELEASE
+  COVERAGE_MOMENT
+  AWARENESS_DAY
+  INTERVIEW
+  EMBARGO
+  OTHER
+}
+
+model CalendarEvent {
+  id        String       @id @default(cuid())
+  accountId String
+  clientId  String?
+  kind      CalendarKind @default(OTHER)
+  title     String
+  startsAt  DateTime
+  endsAt    DateTime?
+  allDay    Boolean      @default(true)
+  entityId  String? // release id etc.
+  color     String?
+  account   Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  client    Client?      @relation(fields: [clientId], references: [id])
+
+  @@index([accountId, startsAt])
+}
